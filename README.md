@@ -1,16 +1,121 @@
 # macOS NFTS
 
-A new Flutter project.
+<p align="center">
+  <b>专为 macOS 打造的高性能、轻量级、免降安全策略的 NTFS 磁盘读写管理专家</b>
+  <br>
+  <sub>适配 Apple Silicon (M1/M2/M3/M4) 与 Intel 双架构 | 支持 macOS 11.0 Big Sur 及以上所有新系统</sub>
+</p>
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 🌟 核心特性与亮点
 
-A few resources to get you started if this is your first Flutter project:
+- 🛡️ **免关 SIP，免降安全等级**：基于 **FUSE-T** 本地用户态协议栈桥接，**完全无需**像旧版 macFUSE 那样进恢复模式降低系统安全级别或关闭 SIP。
+- ⚡ **原生级高速 NTFS 读写**：集成优化调优的 `NTFS-3G` 驱动引擎，完美突破 macOS 默认仅只读（Read-Only）的限制，支持大文件快速拷贝与实时读写。
+- 🔌 **即插即用与状态自感知**：轻量级底层硬件与卷变动监听，U 盘/移动硬盘插入、拔出、挂载状态变动秒级自动刷新。
+- 📁 **自动访达（Finder）联动**：一键读写挂载成功后，自动在访达中唤起并打开磁盘卷目录，即刻开始拖拽管理文件。
+- 📦 **开箱即用，驱动全内置**：标准 PKG 安装包内置 Universal 双架构驱动，安装 App 即完成驱动环境静默配置，无需联网下载外部依赖。
+- 🖥️ **可视化诊断与实时日志**：内置折叠式终端日志面板，底层挂载、卸载及执行指令清晰可见。
+- 🧹 **一键彻底干净卸载**：支持在界面中一键彻底移除 App 本身、用户偏好缓存以及底层 FUSE-T/NTFS-3G 全部依赖。
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+---
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 📥 安装指南
+
+### 1. 下载与安装
+下载并双击 **`macOS NFTS_Installer.pkg`** 安装包，按照向导完成安装即可。驱动环境将在安装时自动部署就绪。
+
+---
+
+### ⚠️ 常见安装问题排查（macOS 安全防护机制）
+
+由于本软件未向 Apple 购买付费开发者证书进行公证，通过网络（网盘、微信、浏览器等）下载时，macOS Gatekeeper 安全机制可能会拦截安装包或应用程序，请参考以下方法解决：
+
+#### 场景一：双击安装包时提示“无法打开，因为来自未知开发者”或“Apple 无法检查其是否包含恶意软件”
+
+这是 macOS 对未公证独立软件的标准安全提示，只需简单放行即可：
+
+- **方法 ①（推荐，最简单快捷）**：
+  1. 在 `macOS NFTS_Installer.pkg` 安装包上 **右键（或按住键盘 Control 键点按）**；
+  2. 在弹出的菜单中点击 **【打开】**；
+  3. 在弹出的系统确认对话框中，再次点击 **【仍要打开】/【打开】** 即可正常安装。
+
+- **方法 ②（通过系统设置放行）**：
+  1. 打开 macOS **【系统设置】**（System Settings）；
+  2. 点击左侧菜单中的 **【隐私与安全性】**（Privacy & Security）；
+  3. 滑动到底部“安全性”区域，会看到提示 *“已阻止使用 macOS NFTS_Installer.pkg，因为来自身份不明的开发者”*；
+  4. 点击旁边的 **【仍要打开】** 按钮即可。
+
+---
+
+#### 场景二：打开应用时提示“已损坏，无法打开。你应该将它移到废纸篓”
+
+如果在 macOS 13 (Ventura) / 14 (Sonoma) / 15 (Sequoia) 及以上系统打开应用时提示损坏，是因为系统对网络下载的文件自动附加了 `com.apple.quarantine`（隔离属性）。
+
+- **解决方法（一键终端命令解除隔离）**：
+  1. 按 `Command + 空格` 搜索并打开 **【终端】**（Terminal）应用；
+  2. 复制并粘贴以下命令后按回车执行（会提示输入 Mac 锁屏密码）：
+     ```bash
+     sudo xattr -rd com.apple.quarantine /Applications/macOS NFTS.app
+     ```
+  3. 执行完成后，重新打开 **macOS NFTS** 即可正常进入主界面。
+
+---
+
+## 🚀 使用教程
+
+### 第一步：插入 NTFS 外置设备
+将您的 NTFS 格式移动硬盘、U 盘或固态硬盘插入 Mac。打开 **macOS NFTS**，软件会自动识别并列出所有的磁盘与分区信息。
+
+### 第二步：一键以读写模式挂载
+在对应的 NTFS 分区卡片上，点击右侧的 **【以读写模式挂载】** 按钮：
+- 系统会弹出 macOS 原生管理员提权弹窗；
+- 输入您的 Mac **开机/锁屏密码**（或通过 Touch ID 指纹认证）进行授权；
+- 软件将自动卸载系统原生只读挂载，并调用用户态驱动以全权限读写模式重新挂载该分区。
+
+### 第三步：畅享 NTFS 读写
+挂载成功后，状态徽标将由“只读”变为 **“已挂载 (可读写)”**，软件会自动在**访达（Finder）**中打开该磁盘，您可以随心所欲地拷贝、删除、编辑文件。
+
+### 第四步：安全卸载与推出
+- **卸载卷**：点击卡片上的 **【卸载】** 按钮，即可安全解除读写占用并恢复原生状态；
+- **安全推出**：点击 **【推出设备】** 按钮，系统将安全断开该物理硬件连接，此时拔出 U 盘可确保数据安全不丢失。
+
+---
+
+## 🧹 彻底卸载与清理
+
+如果您不再需要本软件，可以通过以下方式彻底清理，**绝不在系统中残留任何驱动垃圾**：
+
+- **方式 1（推荐）**：在 macOS NFTS 界面右上角点击 **【彻底卸载】** 图标，在弹出确认框中点击“确认彻底卸载”，输入管理员密码后系统将自动删除 App 本体、偏好配置、FUSE-T 驱动框架与 `/usr/local` 下全部依赖。
+- **方式 2（命令行）**：在终端中进入项目目录执行：
+  ```bash
+  sudo ./scripts/uninstall.sh
+  ```
+
+---
+
+## 🛠️ 技术架构
+
+```text
+macOS NFTS (Flutter macOS Desktop)
+    │
+    ├── 磁盘扫描探测 ──> diskutil list/info -plist (Dart XML 解析)
+    │
+    ├── 提权读写挂载 ──> AppleScript Privileged Runner (do shell script with admin)
+    │                       │
+    │                       ▼
+    │                 /usr/local/bin/ntfs-3g (注入 local/auto_xattr 参数)
+    │                       │
+    │                       ▼
+    │                 FUSE-T (通过本地 NFS 协议栈桥接，免关 SIP)
+    │
+    └── 状态事件响应 ──> DASession (DiskArbitration) + NSWorkspace Notification
+```
+
+---
+
+## 📄 版权与声明
+
+- **作者 / 开发者**：RmondJone
+- **版权所有**：Copyright © 2026 RmondJone. All rights reserved.
+- **驱动说明**：本项目集成了开源 FUSE-T 与 NTFS-3G 驱动套件，遵循各自开源许可证。
