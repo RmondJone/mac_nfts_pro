@@ -31,9 +31,11 @@ rm -rf "/Library/Application Support/fuse-t" 2>/dev/null || true
 rm -rf "/Library/Frameworks/fuse_t.framework" 2>/dev/null || true
 rm -rf "/Library/Filesystems/fuse-t.fs" 2>/dev/null || true
 
-# 3. 清理 /usr/local 下的 NTFS-3G 及动态链接库软链接
+# 3. 清理 /usr/local 下的 NTFS-3G、Helper 脚本及 sudoers 免密规则
 echo "3. 正在清理 /usr/local 中的驱动与依赖库..."
 rm -f /usr/local/bin/ntfs-3g
+rm -f /usr/local/bin/macntfs-helper
+rm -f /private/etc/sudoers.d/mac_ntfs_pro
 rm -f /usr/local/lib/libntfs-3g*
 rm -f /usr/local/lib/libfuse-t*
 rm -f /usr/local/lib/libfuse.2.dylib

@@ -5,31 +5,50 @@ APP_NAME="macOS NFTS"
 VERSION="1.0.0"
 BUNDLE_ID="com.guohanlin.macntfspro"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC_APP="$PROJECT_ROOT/build/macos/Build/Products/Release/macOS NFTS.app"
-[ ! -d "$SRC_APP" ] && SRC_APP="$PROJECT_ROOT/build/macos/Build/Products/Release/mac_ntfs_pro.app"
 DEST_PKG="$HOME/Desktop/macOS NFTS_Installer.pkg"
 TMP_ROOT="/tmp/macntfs_pkg_root"
 TMP_SCRIPTS="/tmp/macntfs_pkg_scripts"
-TMP_COMPONENT_PKG="/tmp/macOS NFTS_Component.pkg"
+TMP_COMPONENT_PKG="/tmp/macOS_NFTS_Component.pkg"
 
 echo "================================================="
 echo "  正在制作 $APP_NAME v$VERSION 一键安装包 (PKG)   "
 echo "================================================="
 
-# 1. 检查 Release App 是否已编译
-if [ ! -d "$SRC_APP" ]; then
+# 1. 检查并定位 Release App 编译产物
+RELEASE_DIR="$PROJECT_ROOT/build/macos/Build/Products/Release"
+find_src_app() {
+    if [ -d "$RELEASE_DIR/$APP_NAME.app" ]; then
+        echo "$RELEASE_DIR/$APP_NAME.app"
+    elif [ -d "$RELEASE_DIR/mac_ntfs_pro.app" ]; then
+        echo "$RELEASE_DIR/mac_ntfs_pro.app"
+    else
+        find "$RELEASE_DIR" -maxdepth 1 -name "*.app" 2>/dev/null | head -n 1
+    fi
+}
+
+SRC_APP="$(find_src_app)"
+
+if [ -z "$SRC_APP" ] || [ ! -d "$SRC_APP" ]; then
     echo "⚠️ 未找到 Release 编译产物，正在执行 flutter build macos --release..."
     flutter build macos --release
+    SRC_APP="$(find_src_app)"
 fi
+
+if [ -z "$SRC_APP" ] || [ ! -d "$SRC_APP" ]; then
+    echo "❌ 错误: 未能在 $RELEASE_DIR 下找到有效的 macOS .app 编译产物！"
+    exit 1
+fi
+
+echo "🔍 识别到 App 产物路径: $SRC_APP"
 
 # 2. 清理临时构建目录
 rm -rf "$TMP_ROOT" "$TMP_SCRIPTS" "$TMP_COMPONENT_PKG" "$DEST_PKG"
-mkdir -p "$TMP_ROOT/Applications/$APP_NAME.app"
+mkdir -p "$TMP_ROOT/Applications"
 mkdir -p "$TMP_SCRIPTS"
 
 # 3. 复制 App 到打包根目录
 echo "📦 正在准备 App 核心文件..."
-cp -R "$SRC_APP/" "$TMP_ROOT/Applications/$APP_NAME.app/"
+cp -R "$SRC_APP" "$TMP_ROOT/Applications/$APP_NAME.app"
 
 # 4. 嵌入 Universal 离线驱动资源包到 App.bundle/Contents/Resources/driver
 echo "🔧 正在将 Universal 驱动 (FUSE-T + NTFS-3G) 嵌入 App Bundle..."
