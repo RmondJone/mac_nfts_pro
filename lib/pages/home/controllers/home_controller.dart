@@ -24,7 +24,6 @@ class HomeController extends GetxController {
 
   // 搜索与过滤
   final RxString searchKeyword = ''.obs;
-  final RxBool onlyShowNTFS = false.obs;
 
   // 控制台日志列表
   final RxList<LogMessageEvent> logList = <LogMessageEvent>[].obs;
@@ -108,12 +107,12 @@ class HomeController extends GetxController {
     }
   }
 
-  /// 注释：获取经过过滤后的磁盘列表
+  /// 注释：获取经过过滤后的磁盘列表 (仅展示 NTFS 格式磁盘)
   /// 时间：2026/08/16 12:20
   /// 作者：郭翰林
   List<DiskItemModel> get filteredDisks {
     return diskList.where((d) {
-      if (onlyShowNTFS.value && !d.isNTFS) {
+      if (!d.isNTFS) {
         return false;
       }
       if (searchKeyword.value.trim().isNotEmpty) {

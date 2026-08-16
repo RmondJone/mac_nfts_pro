@@ -149,22 +149,12 @@ class _HomePageState extends State<HomePage> {
           ),
           const Spacer(),
           SizedBox(
-            width: 180,
+            width: 200,
             child: LyInput(
               controller: searchEditingController,
-              hintText: '搜索磁盘/格式...',
+              hintText: '搜索 NTFS 磁盘/设备...',
               prefixIcon: const Icon(Icons.search, size: 16),
               onChanged: (val) => pageController.searchKeyword.value = val,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Obx(
-            () => FilterChip(
-              label: const Text('仅显示 NTFS', style: TextStyle(fontSize: 12)),
-              selected: pageController.onlyShowNTFS.value,
-              onSelected: (val) => pageController.onlyShowNTFS.value = val,
-              selectedColor: LyColors.primary.withValues(alpha: 0.2),
-              checkmarkColor: LyColors.primary,
             ),
           ),
           const SizedBox(width: 10),
@@ -257,7 +247,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(width: 8),
             Text(
-              '已扫描 ${pageController.diskList.length} 个存储分区 (NTFS: ${pageController.diskList.where((d) => d.isNTFS).length})',
+              '已发现 ${pageController.filteredDisks.length} 个 NTFS 存储磁盘',
               style: LyFonts.bodySmall.copyWith(
                 color: isDark
                     ? LyColors.textSecondaryDark

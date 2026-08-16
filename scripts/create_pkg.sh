@@ -80,6 +80,15 @@ if [ -f "$DRIVER_DIR/lib/libintl.8.dylib" ]; then
     chmod 755 /usr/local/lib/libintl.8.dylib
 fi
 
+# 3. 创建 FUSE-T 动态库兼容软链接
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    echo "正在创建 FUSE-T 兼容动态链接库软链接..."
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
+fi
+
 echo "=== MacNTFS Pro 驱动环境部署完成！ ==="
 exit 0
 EOF

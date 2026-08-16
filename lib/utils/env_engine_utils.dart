@@ -86,12 +86,39 @@ class EnvEngineUtils {
       } catch (_) {}
     }
 
+    // 校验 ntfs-3g 动态链接库是否能够正常加载运行 (防止缺失 libfuse.2.dylib 等依赖)
+    if (hasNtfs3g) {
+      try {
+        final testRun = await Process.run(ntfs3gPath, ['--version']);
+        final isRunOk = testRun.exitCode == 0 ||
+            testRun.stdout.toString().contains('ntfs-3g') ||
+            testRun.stderr.toString().contains('ntfs-3g');
+
+        // 若因缺少 libfuse.2.dylib 导致加载失败，但存在 libfuse-t.dylib，尝试自愈软链接
+        if (!isRunOk && File('/usr/local/lib/libfuse-t.dylib').existsSync()) {
+          try {
+            await Process.run('ln', [
+              '-sf',
+              '/usr/local/lib/libfuse-t.dylib',
+              '/usr/local/lib/libfuse.2.dylib',
+            ]);
+            await Process.run('ln', [
+              '-sf',
+              '/usr/local/lib/libfuse-t.dylib',
+              '/usr/local/lib/libfuse.dylib',
+            ]);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
     // 3. 检测 FUSE-T / macFUSE
     bool hasFuse = false;
     String fuseType = 'None';
     if (Directory('/Library/Filesystems/fuse-t.fs').existsSync() ||
         Directory('/usr/local/include/fuse-t').existsSync() ||
-        File('/usr/local/lib/libfuse-t.dylib').existsSync()) {
+        File('/usr/local/lib/libfuse-t.dylib').existsSync() ||
+        Directory('/Library/Application Support/fuse-t').existsSync()) {
       hasFuse = true;
       fuseType = 'FUSE-T';
     } else if (Directory('/Library/Filesystems/macfuse.fs').existsSync() ||
@@ -157,6 +184,13 @@ fi
 if [ -f "$libIntl" ]; then
     cp -f "$libIntl" /usr/local/lib/libintl.8.dylib
     chmod 755 /usr/local/lib/libintl.8.dylib
+fi
+
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
 fi
 ''';
   }

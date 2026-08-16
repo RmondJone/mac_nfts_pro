@@ -41,8 +41,14 @@ class DiskItemModel {
   /// 使用百分比
   double get usagePercentage {
     if (totalSize <= 0) return 0.0;
-    final used = totalSize - freeSpace;
-    return (used / totalSize).clamp(0.0, 1.0);
+    if (usedSpace > 0) {
+      return (usedSpace / totalSize).clamp(0.0, 1.0);
+    }
+    if (freeSpace > 0) {
+      final used = totalSize - freeSpace;
+      return (used / totalSize).clamp(0.0, 1.0);
+    }
+    return 0.0;
   }
 
   /// 状态描述文本

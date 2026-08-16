@@ -26,13 +26,16 @@ class DiskEngineUtils {
       final rootDict = document.findAllElements('dict').firstOrNull;
       if (rootDict == null) return diskList;
 
+      // 提取系统 mount 表，用于辅助判定 FUSE-T / NFS 用户态挂载状态
+      final systemMountMap = await _getSystemMountMap();
+
       final allDisksAndPartitions = _parsePlistDict(rootDict);
       final allDisks =
           (allDisksAndPartitions['AllDisksAndPartitions'] as List?) ?? [];
 
       for (final diskObj in allDisks) {
         if (diskObj is Map<String, dynamic>) {
-          await _processDiskEntry(diskObj, diskList);
+          await _processDiskEntry(diskObj, diskList, systemMountMap);
         }
       }
 
@@ -43,23 +46,64 @@ class DiskEngineUtils {
     return diskList;
   }
 
-  /// 注释：处理单个磁盘及其分区信息
+  /// 注释：获取系统底层所有挂载点及可写状态映射表
+  /// 时间：2026/08/16 17:30
+  /// 作者：郭翰林
+  static Future<Map<String, _MountInfo>> _getSystemMountMap() async {
+    final Map<String, _MountInfo> map = {};
+    try {
+      final res = await Process.run('mount', []);
+      if (res.exitCode == 0) {
+        final lines = res.stdout.toString().split('\n');
+        final reg = RegExp(r'^(.+?)\s+on\s+(.+?)\s+\((.+?)\)$');
+        for (final line in lines) {
+          final match = reg.firstMatch(line.trim());
+          if (match != null) {
+            final source = match.group(1)!.trim();
+            final point = match.group(2)!.trim();
+            final opts = match.group(3)!.toLowerCase();
+            final isWritable = !opts.contains('read-only');
+            final info = _MountInfo(
+              source: source,
+              mountPoint: point,
+              isWritable: isWritable,
+            );
+            map[source] = info;
+            map[point] = info;
+          }
+        }
+      }
+    } catch (_) {}
+    return map;
+  }
+
+  /// 注释：处理单个磁盘及其分区信息 (支持常规分区、APFS 卷及整盘无分区设备)
   /// 时间：2026/08/16 12:20
   /// 作者：郭翰林
   static Future<void> _processDiskEntry(
     Map<String, dynamic> diskMap,
     List<DiskItemModel> results,
+    Map<String, _MountInfo> systemMountMap,
   ) async {
     final parentDevice = (diskMap['DeviceIdentifier'] ?? '').toString();
     final partitions = (diskMap['Partitions'] as List?) ?? [];
     final apfsVolumes = (diskMap['APFSVolumes'] as List?) ?? [];
 
-    // 处理常规分区
+    // 1. 如果该磁盘没有子分区（如无分区表的整盘直接格式化 U 盘/移动设备）
+    if (partitions.isEmpty && apfsVolumes.isEmpty && parentDevice.isNotEmpty) {
+      final item = await _fetchDiskDetail(parentDevice, parentDevice, systemMountMap);
+      if (item != null && !_isSystemInternalIgnore(item)) {
+        results.add(item);
+      }
+      return;
+    }
+
+    // 2. 处理常规分区
     for (final part in partitions) {
       if (part is Map<String, dynamic>) {
         final devId = (part['DeviceIdentifier'] ?? '').toString();
         if (devId.isNotEmpty) {
-          final item = await _fetchDiskDetail(devId, parentDevice);
+          final item = await _fetchDiskDetail(devId, parentDevice, systemMountMap);
           if (item != null && !_isSystemInternalIgnore(item)) {
             results.add(item);
           }
@@ -67,12 +111,12 @@ class DiskEngineUtils {
       }
     }
 
-    // 处理 APFS 卷
+    // 3. 处理 APFS 卷
     for (final vol in apfsVolumes) {
       if (vol is Map<String, dynamic>) {
         final devId = (vol['DeviceIdentifier'] ?? '').toString();
         if (devId.isNotEmpty) {
-          final item = await _fetchDiskDetail(devId, parentDevice);
+          final item = await _fetchDiskDetail(devId, parentDevice, systemMountMap);
           if (item != null && !_isSystemInternalIgnore(item)) {
             results.add(item);
           }
@@ -87,6 +131,7 @@ class DiskEngineUtils {
   static Future<DiskItemModel?> _fetchDiskDetail(
     String devId,
     String parentDisk,
+    Map<String, _MountInfo> systemMountMap,
   ) async {
     try {
       final infoResult =
@@ -99,36 +144,105 @@ class DiskEngineUtils {
 
       final info = _parsePlistDict(dictNode);
 
-      final volumeName = (info['VolumeName'] ?? '').toString();
-      final mountPoint = (info['MountPoint'] ?? '').toString();
+      var volumeName = (info['VolumeName'] ?? '').toString().trim();
+      var mountPoint = (info['MountPoint'] ?? '').toString().trim();
       final fsType = (info['FilesystemType'] ?? '').toString().toLowerCase();
       final fsName = (info['FilesystemName'] ?? '').toString();
       final userVisibleFs =
           (info['FilesystemUserVisibleName'] ?? '').toString();
       final content = (info['Content'] ?? '').toString();
 
+      // 卷名智能提取：若 VolumeName 为空，尝试从挂载点或介质名提取
+      if (volumeName.isEmpty) {
+        if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
+          volumeName = mountPoint.replaceFirst('/Volumes/', '');
+        } else if ((info['MediaName'] ?? '').toString().trim().isNotEmpty) {
+          volumeName = (info['MediaName'] ?? '').toString().trim();
+        } else if ((info['IORegistryEntryName'] ?? '')
+            .toString()
+            .trim()
+            .isNotEmpty) {
+          volumeName = (info['IORegistryEntryName'] ?? '').toString().trim();
+        }
+      }
+
       final isInternal = (info['Internal'] == true);
       final isRemovable = (info['RemovableMedia'] == true) ||
-          (info['RemovableMediaOrExternalDevice'] == true);
+          (info['RemovableMediaOrExternalDevice'] == true) ||
+          (info['Ejectable'] == true);
 
-      final isWritable = (info['Writable'] == true) &&
+      var isWritable = (info['Writable'] == true) &&
           (info['WritableVolume'] == true);
-      final isMounted = mountPoint.isNotEmpty;
+      var isMounted = mountPoint.isNotEmpty;
 
-      final totalSize = (info['TotalSize'] ?? info['Size'] ?? 0) as int;
-      final freeSpace = (info['FreeSpace'] ?? 0) as int;
-      final usedSpace = totalSize > freeSpace ? totalSize - freeSpace : 0;
+      // 结合底层 mount 表进行状态校准 (兼容 FUSE-T / NFS 用户态读写挂载)
+      final devNode = '/dev/$devId';
+      if (systemMountMap.containsKey(devNode)) {
+        final mountEntry = systemMountMap[devNode]!;
+        isMounted = true;
+        mountPoint = mountEntry.mountPoint;
+        isWritable = mountEntry.isWritable;
+      } else if (volumeName.isNotEmpty &&
+          systemMountMap.containsKey('/Volumes/$volumeName')) {
+        final mountEntry = systemMountMap['/Volumes/$volumeName']!;
+        isMounted = true;
+        mountPoint = mountEntry.mountPoint;
+        isWritable = mountEntry.isWritable;
+      }
+
+      // 提取磁盘容量与可用空间 (全面兼容 APFS 容器共享机制与传统分区)
+      int parseSize(dynamic val) {
+        if (val is num) return val.toInt();
+        if (val is String) return int.tryParse(val) ?? 0;
+        return 0;
+      }
+
+      final rawTotal = parseSize(info['TotalSize']) > 0
+          ? parseSize(info['TotalSize'])
+          : (parseSize(info['APFSContainerSize']) > 0
+              ? parseSize(info['APFSContainerSize'])
+              : (parseSize(info['Size']) > 0
+                  ? parseSize(info['Size'])
+                  : (parseSize(info['VolumeSize']) > 0
+                      ? parseSize(info['VolumeSize'])
+                      : parseSize(info['IOKitSize']))));
+
+      // APFS 卷的可用空间存储在 APFSContainerFree，传统卷存储在 FreeSpace
+      final containerFree = parseSize(info['APFSContainerFree']);
+      final standardFree = parseSize(info['FreeSpace']);
+      int freeSpace = containerFree > 0 ? containerFree : standardFree;
+
+      // APFS 卷的实际已用存储在 CapacityInUse / APFSVolumeCapacityInUse
+      final capInUse = parseSize(info['CapacityInUse']) > 0
+          ? parseSize(info['CapacityInUse'])
+          : parseSize(info['APFSVolumeCapacityInUse']);
+      int usedSpace = capInUse;
+
+      // 互相推导与兜底
+      if (usedSpace <= 0 && rawTotal > 0 && freeSpace > 0 && rawTotal >= freeSpace) {
+        usedSpace = rawTotal - freeSpace;
+      }
+      if (freeSpace <= 0 && rawTotal > 0 && usedSpace > 0 && rawTotal >= usedSpace) {
+        freeSpace = rawTotal - usedSpace;
+      }
+
+      final totalSize = rawTotal;
       final uuid = (info['DiskUUID'] ?? info['VolumeUUID'] ?? '').toString();
 
       // 判断是否是 NTFS
       final isNTFS = fsType.contains('ntfs') ||
           fsName.toLowerCase().contains('ntfs') ||
           userVisibleFs.toLowerCase().contains('ntfs') ||
-          content.contains('Microsoft Basic Data');
+          (content.contains('Microsoft Basic Data') &&
+               !fsType.contains('fat') &&
+               !fsType.contains('msdos') &&
+               !fsType.contains('exfat') &&
+               !fsName.toLowerCase().contains('fat') &&
+               !fsName.toLowerCase().contains('exfat'));
 
       return DiskItemModel(
         deviceIdentifier: devId,
-        deviceNode: '/dev/$devId',
+        deviceNode: devNode,
         parentDisk: parentDisk.isNotEmpty ? parentDisk : devId,
         volumeName: volumeName.isNotEmpty ? volumeName : devId,
         mountPoint: mountPoint,
@@ -180,7 +294,7 @@ class DiskEngineUtils {
     return false;
   }
 
-  /// 注释：以读写模式安全挂载 NTFS 磁盘 (带失败自动回滚与数据安全保护)
+  /// 注释：以读写模式安全挂载 NTFS 磁盘 (带环境自愈与失败安全回退保护)
   /// 时间：2026/08/16 16:45
   /// 作者：郭翰林
   static Future<bool> mountReadWrite(
@@ -206,12 +320,26 @@ class DiskEngineUtils {
         loggerInfo('正在安全卸载原生只读占用: ${disk.deviceNode}');
         await Process.run('sync', []);
         await Process.run('diskutil', ['unmount', disk.deviceNode]);
-        await Future.delayed(const Duration(milliseconds: 400));
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      // 3. 构造基于 FUSE-T + NTFS-3G 的高级安全挂载脚本 (带自动修复与容灾参数)
+      // 3. 构造基于 FUSE-T + NTFS-3G 的高级安全挂载脚本 (带环境自愈与容灾参数)
       final mountCommand = '''
+# 确保 FUSE-T 动态库软链接就绪
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    [ ! -f "/usr/local/lib/libfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    [ ! -f "/usr/local/lib/libfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
+fi
+
+# 兜底确保卸载原生占用
+diskutil unmount "${disk.deviceNode}" 2>/dev/null || true
+
+# 创建挂载目标目录
 mkdir -p "$targetMountPath"
+
+# 执行 NTFS-3G 读写挂载
 ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,volname="$mountPointName"
 ''';
 
@@ -232,6 +360,8 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
         final errMsg = scriptResult.stderr.toString();
         if (errMsg.contains('Windows cache') || errMsg.contains('unclean')) {
           LyUtils.showToast('磁盘存在 Windows 快速启动未释放标记，已安全回滚只读模式', isError: true);
+        } else if (errMsg.contains('Library not loaded')) {
+          LyUtils.showToast('驱动动态库依赖缺失，请点击【一键配置驱动】修复', isError: true);
         } else {
           LyUtils.showToast('读写挂载未成功，已自动安全回滚至只读模式', isError: true);
         }
@@ -371,3 +501,19 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
     }
   }
 }
+
+/// 注释：系统底层 Mount 挂载信息内部结构
+/// 时间：2026/08/16 17:30
+/// 作者：郭翰林
+class _MountInfo {
+  final String source;
+  final String mountPoint;
+  final bool isWritable;
+
+  _MountInfo({
+    required this.source,
+    required this.mountPoint,
+    required this.isWritable,
+  });
+}
+

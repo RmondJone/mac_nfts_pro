@@ -156,3 +156,11 @@ chmod +x scripts/create_pkg.sh
 ```
 执行完毕后，将在桌面输出：
 - `~/Desktop/MacNTFS_Pro_Installer.pkg`（双击一步安装 App 与全部驱动，开箱即用）
+
+---
+
+## 六、开发与维护规范
+
+- **禁止自动打包**：每次执行完任务之后**不要进行打包操作**（除非用户显式要求打包）。
+- **禁止自动 Commit**：修改后的代码或新生成的代码禁止进行 `git commit`。
+
