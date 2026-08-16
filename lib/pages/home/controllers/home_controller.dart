@@ -180,20 +180,28 @@ class HomeController extends GetxController {
   }
 
   /// 注释：一键安装/配置推荐驱动
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 16:30
   /// 作者：郭翰林
   Future<void> handleInstallDrivers() async {
     isInstallingDriver.value = true;
     try {
-      loggerInfo('开始执行一键驱动配置脚本...');
-      final script = EnvEngineUtils.getInstallScript();
+      loggerInfo('准备执行一键离线驱动部署...');
+      final script = EnvEngineUtils.getOfflineInstallScript();
+      if (script == null) {
+        loggerError('未找到 App 内置的离线驱动资源包');
+        LyUtils.showToast('未找到内置离线驱动包，请重新安装或检查安装包', isError: true);
+        return;
+      }
+
+      loggerInfo('开始请求管理员权限执行离线驱动静默安装...');
       final result = await LyUtils.runPrivilegedScript(script);
       if (result.exitCode == 0) {
-        LyUtils.showToast('驱动安装/配置完成！');
+        loggerInfo('🎉 FUSE-T 与 NTFS-3G 驱动离线部署成功！');
+        LyUtils.showToast('驱动环境已就绪，已支持 NTFS 读写！');
         await refreshEnvironment();
       } else {
-        loggerError('驱动安装失败: ${result.stderr}');
-        LyUtils.showToast('驱动配置失败: ${result.stderr}', isError: true);
+        loggerError('驱动安装执行失败: ${result.stderr} ${result.stdout}');
+        LyUtils.showToast('驱动安装失败: ${result.stderr}', isError: true);
       }
     } catch (e) {
       loggerError('一键驱动安装异常: $e');

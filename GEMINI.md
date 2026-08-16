@@ -53,10 +53,10 @@ flowchart TD
 - **物理推出（Eject）**：通过 `diskutil eject` 安全断开并弹出外置存储设备。
 - **周期轮询与即插即用**：`HomeController` 启动 6 秒周期的轻量轮询，实时感知 U 盘/移动硬盘的插拔及挂载状态变化。
 
-### 4. 驱动环境自检与一键配置
-- 自动检测系统是否存在 `Homebrew`（支持 Intel `/usr/local/bin` 和 Apple Silicon `/opt/homebrew/bin`）。
-- 诊断 `ntfs-3g` 与 `fuse-t` / `macfuse` 的安装状态与可执行路径。
-- 内置一键安装脚本（`brew tap gromgit/fuse && brew install --cask fuse-t && brew install ntfs-3g-mac`）。
+### 4. 驱动环境离线内嵌与全自动就绪机制
+- **Universal 离线驱动内置**：工程内嵌了支持 `arm64`（Apple Silicon）与 `x86_64`（Intel）的双架构通用版 **`FUSE-T.pkg`** 与 **`ntfs-3g`** 及其动态库（`libntfs-3g.dylib`、`libintl.8.dylib`）。
+- **标准 PKG 安装器一键部署**：使用 macOS 原生 `pkgbuild` 与 `productbuild` 构建安装包。在安装 `MacNTFS Pro.app` 到 `/Applications` 时，触发 `postinstall` 自动以 root 权限静默安装 `FUSE-T` 并部署 `ntfs-3g`，**用户安装完 App 即驱动全部就绪，无需联网、无需任何配置**。
+- **App 内部离线安装兜底**：即使极少数用户直接解压 `.app` 运行，App 也会自动定位内置的驱动资源包，点击“一键配置驱动”直接从本地离线安装，1秒完成。
 
 ### 5. 实时日志与控制台系统
 - 全局日志（`loggerInfo`、`loggerWarn`、`loggerError`）通过 `EventBus` 实时推送到前端。
@@ -71,7 +71,13 @@ mac_ntfs_pro/
 ├── pubspec.yaml                     # 项目依赖配置文件
 ├── README.md                        # 项目说明文档
 ├── GEMINI.md                        # 工程原理与架构设计文档
+├── assets/
+│   └── driver/                      # 【离线驱动资源包】Universal 双架构驱动
+│       ├── fuse-t.pkg               # FUSE-T 离线安装包 (23MB)
+│       ├── bin/ntfs-3g              # Universal 二进制 (arm64 + x86_64)
+│       └── lib/                     # Universal 动态链接库 (libntfs-3g, libintl)
 ├── scripts/
+│   ├── create_pkg.sh                # 【核心】macOS 标准 PKG 安装包打包脚本 (含 postinstall)
 │   └── create_dmg.sh                # macOS DMG 安装镜像打包脚本
 ├── macos/                           # macOS 原生工程目录
 │   └── Runner/                      # macOS App 启动入口与权限配置 (Entitlements)
@@ -88,7 +94,7 @@ mac_ntfs_pro/
     │
     ├── utils/                       # 核心工具与底层命令引擎
     │   ├── disk_engine_utils.dart   # 【核心引擎】磁盘扫描(plist解析)、FUSE-T读写挂载、卸载、推出
-    │   ├── env_engine_utils.dart    # 【环境检测】Homebrew、FUSE-T、NTFS-3G 检测与一键配置
+    │   ├── env_engine_utils.dart    # 【环境检测】内置离线驱动定位、FUSE-T/NTFS-3G 自检与离线静默安装
     │   ├── ly_utils.dart            # 通用工具 (Toast提示、字节格式化、提权脚本执行、访达联动)
     │   ├── logger_utils.dart        # 日志格式化与 EventBus 消息广播
     │   └── event_bus_utils.dart     # EventBus 实例单例
@@ -106,7 +112,7 @@ mac_ntfs_pro/
             │   └── home_controller.dart # 首页业务逻辑控制器 (状态管理、轮询定时器、操作调度)
             ├── models/
             │   ├── disk_item_model.dart  # 磁盘分区实体 (容量、文件系统、设备节点、挂载点等)
-            │   └── env_status_model.dart # 驱动环境状态实体 (Brew/FUSE/NTFS-3G状态)
+            │   └── env_status_model.dart # 驱动环境状态实体 (FUSE/NTFS-3G状态)
             └── views/
                 ├── disk_item_card.dart   # 单个磁盘卡片 (容量进度条、读写挂载、卸载、推出按钮)
                 ├── disk_detail_dialog.dart # 磁盘详细参数对话框 (UUID、底层属性)
@@ -125,7 +131,7 @@ mac_ntfs_pro/
 | **控制层 (Controllers)** | `lib/pages/home/controllers/` | 响应用户交互，管理磁盘列表、搜索过滤、轮询机制及日志流。 |
 | **模型层 (Models)** | `lib/pages/home/models/` | 定义强类型实体数据模型（`DiskItemModel`、`EnvStatusModel`）。 |
 | **引擎/基础设施层 (Utils)** | `lib/utils/disk_engine_utils.dart` 等 | 直接通过进程与 macOS 底层（`diskutil`、`mount`、`osascript`）交互，完成 Plist XML 解析与提权挂载。 |
-| **打包分发 (Scripts)** | `scripts/create_dmg.sh` | 自动化打包编译生成的 Release `.app`，生成可供分发的 `.dmg` 安装镜像。 |
+| **安装包与驱动分发** | `scripts/create_pkg.sh` + `assets/driver/` | 自动化打包 Universal 离线驱动与 postinstall 钩子，生成免联网的一键安装器。 |
 
 ---
 
@@ -140,13 +146,19 @@ flutter pub get
 flutter run -d macos
 ```
 
-### 2. 编译与打包 DMG
+### 2. 编译与打包一键安装包 (PKG / DMG)
 ```bash
 # 1. 编译 macOS Release 版本
 flutter build macos --release
 
-# 2. 执行 DMG 打包脚本
+# 2. 生成标准 PKG 安装包 (内置驱动 + postinstall 钩子)
+chmod +x scripts/create_pkg.sh
+./scripts/create_pkg.sh
+
+# 3. 生成 DMG 安装镜像
 chmod +x scripts/create_dmg.sh
 ./scripts/create_dmg.sh
 ```
-打包脚本将自动将编译出的 `mac_ntfs_pro.app` 复制并挂载 `/Applications` 软链接，输出至桌面 `~/Desktop/MacNTFS_Pro_Installer.dmg`。
+执行完毕后，将在桌面输出：
+- `~/Desktop/MacNTFS_Pro_Installer.pkg`（推荐：双击一步安装 App 与全部驱动）
+- `~/Desktop/MacNTFS_Pro_Installer.dmg`（含 PKG 安装器与 App）

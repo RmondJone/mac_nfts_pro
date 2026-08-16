@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../defines/ly_colors.dart';
 import '../../../defines/ly_fonts.dart';
 import '../../../widgets/ly_badge.dart';
@@ -6,7 +7,7 @@ import '../../../widgets/ly_button.dart';
 import '../models/env_status_model.dart';
 
 /// 注释：驱动环境状态横幅组件
-/// 时间：2026/08/16 12:20
+/// 时间：2026/08/16 16:30
 /// 作者：郭翰林
 class EnvStatusBanner extends StatelessWidget {
   final EnvStatusModel? env;
@@ -48,7 +49,7 @@ class EnvStatusBanner extends StatelessWidget {
             color: isReady ? LyColors.success : LyColors.warning,
             size: 24,
           ),
-          const SizedBox(width: 12),
+          12.horizontalSpace,
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -64,7 +65,7 @@ class EnvStatusBanner extends StatelessWidget {
                             : LyColors.textPrimaryLight,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    8.horizontalSpace,
                     LyBadge(
                       label: isReady ? '驱动正常' : '需要配置',
                       textColor: isReady ? LyColors.success : LyColors.warning,
@@ -74,7 +75,7 @@ class EnvStatusBanner extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 3),
+                3.verticalSpace,
                 Text(
                   env?.checkMessage ?? '正在检测系统驱动环境...',
                   style: LyFonts.bodySmall.copyWith(
@@ -87,7 +88,7 @@ class EnvStatusBanner extends StatelessWidget {
             ),
           ),
           if (!isReady) ...[
-            const SizedBox(width: 12),
+            12.horizontalSpace,
             LyButton(
               text: '一键配置驱动',
               icon: Icons.download_rounded,
@@ -97,7 +98,7 @@ class EnvStatusBanner extends StatelessWidget {
               onPressed: onInstallDrivers,
             ),
           ],
-          const SizedBox(width: 8),
+          8.horizontalSpace,
           IconButton(
             tooltip: '重新检测环境',
             icon: Icon(

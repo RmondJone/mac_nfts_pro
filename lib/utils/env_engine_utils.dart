@@ -3,17 +3,50 @@ import '../defines/ly_constants.dart';
 import '../pages/home/models/env_status_model.dart';
 import 'logger_utils.dart';
 
-/// 注释：环境与驱动检测工具类
-/// 时间：2026/08/16 12:20
+/// 注释：环境与驱动检测及离线安装工具类
+/// 时间：2026/08/16 16:30
 /// 作者：郭翰林
 class EnvEngineUtils {
+  /// 注释：获取 App 内置离线驱动资源目录
+  /// 时间：2026/08/16 16:30
+  /// 作者：郭翰林
+  static Directory? getEmbeddedDriverDir() {
+    final List<String> candidatePaths = [];
+
+    try {
+      // 1. App Bundle 中的 Resources/driver
+      final bundleDir = File(Platform.resolvedExecutable).parent.parent;
+      candidatePaths.add('${bundleDir.path}/Resources/driver');
+
+      // 2. App.framework 中的 flutter_assets/assets/driver
+      candidatePaths.add(
+        '${bundleDir.path}/Frameworks/App.framework/Resources/flutter_assets/assets/driver',
+      );
+    } catch (_) {}
+
+    // 3. 当前工作目录下的 assets/driver (开发调试模式)
+    candidatePaths.add('${Directory.current.path}/assets/driver');
+
+    for (final path in candidatePaths) {
+      final dir = Directory(path);
+      if (dir.existsSync()) {
+        final hasPkg = File('${dir.path}/fuse-t.pkg').existsSync();
+        final hasBin = File('${dir.path}/bin/ntfs-3g').existsSync();
+        if (hasPkg || hasBin) {
+          return dir;
+        }
+      }
+    }
+    return null;
+  }
+
   /// 注释：全面检测当前系统的 NTFS 驱动环境
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 16:30
   /// 作者：郭翰林
   static Future<EnvStatusModel> checkEnvironment() async {
     loggerInfo('开始检测系统 NTFS 读写驱动与运行环境...');
 
-    // 1. 检测 Homebrew
+    // 1. 检测 Homebrew（作为可选辅助）
     String brewPath = '';
     bool hasBrew = false;
     for (final path in ['/usr/local/bin/brew', '/opt/homebrew/bin/brew']) {
@@ -23,26 +56,25 @@ class EnvEngineUtils {
         break;
       }
     }
-    if (!hasBrew) {
-      try {
-        final whichRes = await Process.run('which', ['brew']);
-        if (whichRes.exitCode == 0 && whichRes.stdout.toString().trim().isNotEmpty) {
-          brewPath = whichRes.stdout.toString().trim();
-          hasBrew = true;
-        }
-      } catch (_) {}
-    }
 
     // 2. 检测 NTFS-3G 可执行文件
     String ntfs3gPath = '';
     bool hasNtfs3g = false;
-    for (final path in LyConstants.ntfs3gPaths) {
+    final embeddedDir = getEmbeddedDriverDir();
+
+    final List<String> ntfsSearchPaths = [
+      ...LyConstants.ntfs3gPaths,
+      if (embeddedDir != null) '${embeddedDir.path}/bin/ntfs-3g',
+    ];
+
+    for (final path in ntfsSearchPaths) {
       if (File(path).existsSync()) {
         ntfs3gPath = path;
         hasNtfs3g = true;
         break;
       }
     }
+
     if (!hasNtfs3g) {
       try {
         final whichRes = await Process.run('which', ['ntfs-3g']);
@@ -70,17 +102,15 @@ class EnvEngineUtils {
 
     String message = 'FUSE-T + NTFS-3G 读写驱动已就绪';
     if (!hasNtfs3g || !hasFuse) {
-      if (!hasFuse && !hasNtfs3g) {
-        message = '未检测到 FUSE-T 与 NTFS-3G 驱动，点击一键配置以获取完整读写支持';
-      } else if (!hasFuse) {
-        message = '未检测到 FUSE-T 用户态驱动，点击一键配置进行补全';
+      if (embeddedDir != null) {
+        message = '检测到内置离线驱动包，点击【一键配置驱动】即可秒级极速就绪';
       } else {
-        message = '未检测到 NTFS-3G 组件，点击一键配置进行补全';
+        message = '未检测到完整读写驱动，请点击一键配置驱动';
       }
     }
 
     loggerInfo(
-      '驱动环境检测完成: brew=$hasBrew, ntfs-3g=$hasNtfs3g ($ntfs3gPath), FUSE=$fuseType',
+      '驱动环境检测完成: ntfs-3g=$hasNtfs3g ($ntfs3gPath), FUSE=$fuseType, 内置离线包=${embeddedDir != null}',
     );
 
     return EnvStatusModel(
@@ -94,20 +124,39 @@ class EnvEngineUtils {
     );
   }
 
-  /// 注释：获取一键安装推荐驱动的 Shell 脚本
-  /// 时间：2026/08/16 12:20
+  /// 注释：获取离线驱动安装 Shell 脚本
+  /// 时间：2026/08/16 16:30
   /// 作者：郭翰林
-  static String getInstallScript() {
+  static String? getOfflineInstallScript() {
+    final embeddedDir = getEmbeddedDriverDir();
+    if (embeddedDir == null) return null;
+
+    final fusePkg = '${embeddedDir.path}/fuse-t.pkg';
+    final ntfs3gBin = '${embeddedDir.path}/bin/ntfs-3g';
+    final libNtfs3g = '${embeddedDir.path}/lib/libntfs-3g.dylib';
+    final libIntl = '${embeddedDir.path}/lib/libintl.8.dylib';
+
     return '''
-# 安装 FUSE-T 和 NTFS-3G 读写支持
-if command -v brew >/dev/null 2>&1; then
-    echo "正在通过 Homebrew 安装 FUSE-T 与 ntfs-3g..."
-    brew tap gromgit/fuse 2>/dev/null || true
-    brew install --cask fuse-t 2>/dev/null || true
-    brew install ntfs-3g-mac 2>/dev/null || brew install gromgit/fuse/ntfs-3g-mac 2>/dev/null || true
-    echo "驱动配置完成！"
-else
-    echo "请先安装 Homebrew 或联系管理员配置驱动。"
+if [ -f "$fusePkg" ]; then
+    /usr/sbin/installer -pkg "$fusePkg" -target /
+fi
+
+mkdir -p /usr/local/bin /usr/local/lib
+
+if [ -f "$ntfs3gBin" ]; then
+    cp -f "$ntfs3gBin" /usr/local/bin/ntfs-3g
+    chmod 755 /usr/local/bin/ntfs-3g
+    chown root:wheel /usr/local/bin/ntfs-3g
+fi
+
+if [ -f "$libNtfs3g" ]; then
+    cp -f "$libNtfs3g" /usr/local/lib/libntfs-3g.dylib
+    chmod 755 /usr/local/lib/libntfs-3g.dylib
+fi
+
+if [ -f "$libIntl" ]; then
+    cp -f "$libIntl" /usr/local/lib/libintl.8.dylib
+    chmod 755 /usr/local/lib/libintl.8.dylib
 fi
 ''';
   }
