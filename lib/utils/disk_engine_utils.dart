@@ -6,11 +6,11 @@ import 'logger_utils.dart';
 import 'ly_utils.dart';
 
 /// 注释：macOS 底层磁盘与挂载引擎工具类
-/// 时间：2026/08/16 12:20
+/// 时间：2026/08/16 17:55
 /// 作者：郭翰林
 class DiskEngineUtils {
   /// 注释：扫描系统所有物理磁盘与分区
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   static Future<List<DiskItemModel>> scanDisks() async {
     final List<DiskItemModel> diskList = [];
@@ -26,8 +26,12 @@ class DiskEngineUtils {
       final rootDict = document.findAllElements('dict').firstOrNull;
       if (rootDict == null) return diskList;
 
-      // 提取系统 mount 表，用于辅助判定 FUSE-T / NFS 用户态挂载状态
+      // 1. 提取系统 mount 表
       final systemMountMap = await _getSystemMountMap();
+      // 2. 提取正在运行的 ntfs-3g 进程与挂载映射表
+      final ntfs3gMap = await _getNtfs3gProcessMap();
+      // 3. 提取所有已挂载点的实时 df 容量映射表
+      final dfSpaceMap = await _getDfSpaceMap();
 
       final allDisksAndPartitions = _parsePlistDict(rootDict);
       final allDisks =
@@ -35,7 +39,13 @@ class DiskEngineUtils {
 
       for (final diskObj in allDisks) {
         if (diskObj is Map<String, dynamic>) {
-          await _processDiskEntry(diskObj, diskList, systemMountMap);
+          await _processDiskEntry(
+            diskObj,
+            diskList,
+            systemMountMap,
+            ntfs3gMap,
+            dfSpaceMap,
+          );
         }
       }
 
@@ -73,17 +83,108 @@ class DiskEngineUtils {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      loggerWarn('获取系统 mount 表异常: $e');
+    }
+    return map;
+  }
+
+  /// 注释：获取正在运行的 NTFS-3G 进程及挂载映射表
+  /// 时间：2026/08/16 17:55
+  /// 作者：郭翰林
+  static Future<Map<String, _Ntfs3gProcessInfo>> _getNtfs3gProcessMap() async {
+    final Map<String, _Ntfs3gProcessInfo> map = {};
+    try {
+      final res = await Process.run('ps', ['-ax', '-o', 'pid,command']);
+      if (res.exitCode == 0) {
+        final lines = res.stdout.toString().split('\n');
+        for (final line in lines) {
+          if (line.contains('ntfs-3g') && !line.contains('grep')) {
+            final trimmed = line.trim();
+            final parts = trimmed.split(RegExp(r'\s+'));
+            final pid = int.tryParse(parts.firstOrNull ?? '') ?? 0;
+            // 提取设备节点 (如 /dev/disk2s1 或 disk2s1)
+            final devMatch =
+                RegExp(r'(/dev/disk\w+|(?<=\s)disk\w+)').firstMatch(trimmed);
+            // 提取挂载目标路径 (如 /Volumes/xxx)
+            final mountMatch = RegExp(r'(/Volumes/[^\s]+)').firstMatch(trimmed);
+
+            if (devMatch != null && mountMatch != null) {
+              var rawDev = devMatch.group(1)!;
+              if (!rawDev.startsWith('/dev/')) {
+                rawDev = '/dev/$rawDev';
+              }
+              final mountPath = mountMatch.group(1)!;
+              final info = _Ntfs3gProcessInfo(
+                pid: pid,
+                deviceNode: rawDev,
+                mountPoint: mountPath,
+              );
+              map[rawDev] = info;
+              map[mountPath] = info;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      loggerWarn('获取 NTFS-3G 进程映射失败: $e');
+    }
+    return map;
+  }
+
+  /// 注释：通过 df -k 获取所有挂载点的实际可用与总容量映射表
+  /// 时间：2026/08/16 17:55
+  /// 作者：郭翰林
+  static Future<Map<String, _DiskSpaceInfo>> _getDfSpaceMap() async {
+    final Map<String, _DiskSpaceInfo> map = {};
+    try {
+      final res = await Process.run('df', ['-k']);
+      if (res.exitCode == 0) {
+        final lines = res.stdout.toString().split('\n');
+        for (var i = 1; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.isEmpty) continue;
+          final parts = line.split(RegExp(r'\s+'));
+          if (parts.length >= 6) {
+            final totalKb = int.tryParse(parts[1]) ?? 0;
+            final usedKb = int.tryParse(parts[2]) ?? 0;
+            final availKb = int.tryParse(parts[3]) ?? 0;
+
+            final lastPercentIdx =
+                parts.lastIndexWhere((p) => p.endsWith('%'));
+            String mountPoint = '';
+            if (lastPercentIdx != -1 && lastPercentIdx + 1 < parts.length) {
+              mountPoint = parts.sublist(lastPercentIdx + 1).join(' ');
+            } else {
+              mountPoint = parts.last;
+            }
+
+            if (mountPoint.isNotEmpty) {
+              final spaceInfo = _DiskSpaceInfo(
+                totalBytes: totalKb * 1024,
+                usedBytes: usedKb * 1024,
+                freeBytes: availKb * 1024,
+              );
+              map[mountPoint] = spaceInfo;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      loggerWarn('获取 df 容量映射失败: $e');
+    }
     return map;
   }
 
   /// 注释：处理单个磁盘及其分区信息 (支持常规分区、APFS 卷及整盘无分区设备)
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   static Future<void> _processDiskEntry(
     Map<String, dynamic> diskMap,
     List<DiskItemModel> results,
     Map<String, _MountInfo> systemMountMap,
+    Map<String, _Ntfs3gProcessInfo> ntfs3gMap,
+    Map<String, _DiskSpaceInfo> dfSpaceMap,
   ) async {
     final parentDevice = (diskMap['DeviceIdentifier'] ?? '').toString();
     final partitions = (diskMap['Partitions'] as List?) ?? [];
@@ -91,7 +192,13 @@ class DiskEngineUtils {
 
     // 1. 如果该磁盘没有子分区（如无分区表的整盘直接格式化 U 盘/移动设备）
     if (partitions.isEmpty && apfsVolumes.isEmpty && parentDevice.isNotEmpty) {
-      final item = await _fetchDiskDetail(parentDevice, parentDevice, systemMountMap);
+      final item = await _fetchDiskDetail(
+        parentDevice,
+        parentDevice,
+        systemMountMap,
+        ntfs3gMap,
+        dfSpaceMap,
+      );
       if (item != null && !_isSystemInternalIgnore(item)) {
         results.add(item);
       }
@@ -103,7 +210,13 @@ class DiskEngineUtils {
       if (part is Map<String, dynamic>) {
         final devId = (part['DeviceIdentifier'] ?? '').toString();
         if (devId.isNotEmpty) {
-          final item = await _fetchDiskDetail(devId, parentDevice, systemMountMap);
+          final item = await _fetchDiskDetail(
+            devId,
+            parentDevice,
+            systemMountMap,
+            ntfs3gMap,
+            dfSpaceMap,
+          );
           if (item != null && !_isSystemInternalIgnore(item)) {
             results.add(item);
           }
@@ -116,7 +229,13 @@ class DiskEngineUtils {
       if (vol is Map<String, dynamic>) {
         final devId = (vol['DeviceIdentifier'] ?? '').toString();
         if (devId.isNotEmpty) {
-          final item = await _fetchDiskDetail(devId, parentDevice, systemMountMap);
+          final item = await _fetchDiskDetail(
+            devId,
+            parentDevice,
+            systemMountMap,
+            ntfs3gMap,
+            dfSpaceMap,
+          );
           if (item != null && !_isSystemInternalIgnore(item)) {
             results.add(item);
           }
@@ -126,12 +245,14 @@ class DiskEngineUtils {
   }
 
   /// 注释：获取具体分区的详细信息
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   static Future<DiskItemModel?> _fetchDiskDetail(
     String devId,
     String parentDisk,
     Map<String, _MountInfo> systemMountMap,
+    Map<String, _Ntfs3gProcessInfo> ntfs3gMap,
+    Map<String, _DiskSpaceInfo> dfSpaceMap,
   ) async {
     try {
       final infoResult =
@@ -151,6 +272,41 @@ class DiskEngineUtils {
       final userVisibleFs =
           (info['FilesystemUserVisibleName'] ?? '').toString();
       final content = (info['Content'] ?? '').toString();
+      final devNode = '/dev/$devId';
+
+      final isInternal = (info['Internal'] == true);
+      final isRemovable = (info['RemovableMedia'] == true) ||
+          (info['RemovableMediaOrExternalDevice'] == true) ||
+          (info['Ejectable'] == true);
+
+      var isWritable = (info['Writable'] == true) &&
+          (info['WritableVolume'] == true);
+      var isMounted = mountPoint.isNotEmpty;
+
+      // 1. 结合 NTFS-3G 进程与系统 mount 表进行状态判定
+      if (ntfs3gMap.containsKey(devNode)) {
+        final ntfsInfo = ntfs3gMap[devNode]!;
+        isMounted = true;
+        mountPoint = ntfsInfo.mountPoint;
+        isWritable = true;
+      } else if (systemMountMap.containsKey(devNode)) {
+        final mountEntry = systemMountMap[devNode]!;
+        isMounted = true;
+        mountPoint = mountEntry.mountPoint;
+        isWritable = mountEntry.isWritable;
+      } else if (volumeName.isNotEmpty &&
+          systemMountMap.containsKey('/Volumes/$volumeName')) {
+        final mountEntry = systemMountMap['/Volumes/$volumeName']!;
+        isMounted = true;
+        mountPoint = mountEntry.mountPoint;
+        isWritable = mountEntry.isWritable;
+      } else if (volumeName.isNotEmpty &&
+          ntfs3gMap.containsKey('/Volumes/$volumeName')) {
+        final ntfsInfo = ntfs3gMap['/Volumes/$volumeName']!;
+        isMounted = true;
+        mountPoint = ntfsInfo.mountPoint;
+        isWritable = true;
+      }
 
       // 卷名智能提取：若 VolumeName 为空，尝试从挂载点或介质名提取
       if (volumeName.isEmpty) {
@@ -166,31 +322,7 @@ class DiskEngineUtils {
         }
       }
 
-      final isInternal = (info['Internal'] == true);
-      final isRemovable = (info['RemovableMedia'] == true) ||
-          (info['RemovableMediaOrExternalDevice'] == true) ||
-          (info['Ejectable'] == true);
-
-      var isWritable = (info['Writable'] == true) &&
-          (info['WritableVolume'] == true);
-      var isMounted = mountPoint.isNotEmpty;
-
-      // 结合底层 mount 表进行状态校准 (兼容 FUSE-T / NFS 用户态读写挂载)
-      final devNode = '/dev/$devId';
-      if (systemMountMap.containsKey(devNode)) {
-        final mountEntry = systemMountMap[devNode]!;
-        isMounted = true;
-        mountPoint = mountEntry.mountPoint;
-        isWritable = mountEntry.isWritable;
-      } else if (volumeName.isNotEmpty &&
-          systemMountMap.containsKey('/Volumes/$volumeName')) {
-        final mountEntry = systemMountMap['/Volumes/$volumeName']!;
-        isMounted = true;
-        mountPoint = mountEntry.mountPoint;
-        isWritable = mountEntry.isWritable;
-      }
-
-      // 提取磁盘容量与可用空间 (全面兼容 APFS 容器共享机制与传统分区)
+      // 提取磁盘容量与可用空间
       int parseSize(dynamic val) {
         if (val is num) return val.toInt();
         if (val is String) return int.tryParse(val) ?? 0;
@@ -207,38 +339,47 @@ class DiskEngineUtils {
                       ? parseSize(info['VolumeSize'])
                       : parseSize(info['IOKitSize']))));
 
-      // APFS 卷的可用空间存储在 APFSContainerFree，传统卷存储在 FreeSpace
       final containerFree = parseSize(info['APFSContainerFree']);
       final standardFree = parseSize(info['FreeSpace']);
       int freeSpace = containerFree > 0 ? containerFree : standardFree;
 
-      // APFS 卷的实际已用存储在 CapacityInUse / APFSVolumeCapacityInUse
       final capInUse = parseSize(info['CapacityInUse']) > 0
           ? parseSize(info['CapacityInUse'])
           : parseSize(info['APFSVolumeCapacityInUse']);
       int usedSpace = capInUse;
 
-      // 互相推导与兜底
-      if (usedSpace <= 0 && rawTotal > 0 && freeSpace > 0 && rawTotal >= freeSpace) {
-        usedSpace = rawTotal - freeSpace;
-      }
-      if (freeSpace <= 0 && rawTotal > 0 && usedSpace > 0 && rawTotal >= usedSpace) {
-        freeSpace = rawTotal - usedSpace;
+      int totalSize = rawTotal;
+
+      // 如果已挂载，优先通过 df -k 表校准容量 (无论是 NTFS-3G 还是原生挂载)
+      if (isMounted && mountPoint.isNotEmpty && dfSpaceMap.containsKey(mountPoint)) {
+        final dfInfo = dfSpaceMap[mountPoint]!;
+        if (dfInfo.totalBytes > 0) {
+          totalSize = dfInfo.totalBytes;
+        }
+        usedSpace = dfInfo.usedBytes;
+        freeSpace = dfInfo.freeBytes;
+      } else {
+        if (usedSpace <= 0 && totalSize > 0 && freeSpace > 0 && totalSize >= freeSpace) {
+          usedSpace = totalSize - freeSpace;
+        }
+        if (freeSpace <= 0 && totalSize > 0 && usedSpace > 0 && totalSize >= usedSpace) {
+          freeSpace = totalSize - usedSpace;
+        }
       }
 
-      final totalSize = rawTotal;
       final uuid = (info['DiskUUID'] ?? info['VolumeUUID'] ?? '').toString();
 
       // 判断是否是 NTFS
-      final isNTFS = fsType.contains('ntfs') ||
+      final isNTFS = ntfs3gMap.containsKey(devNode) ||
+          fsType.contains('ntfs') ||
           fsName.toLowerCase().contains('ntfs') ||
           userVisibleFs.toLowerCase().contains('ntfs') ||
           (content.contains('Microsoft Basic Data') &&
-               !fsType.contains('fat') &&
-               !fsType.contains('msdos') &&
-               !fsType.contains('exfat') &&
-               !fsName.toLowerCase().contains('fat') &&
-               !fsName.toLowerCase().contains('exfat'));
+              !fsType.contains('fat') &&
+              !fsType.contains('msdos') &&
+              !fsType.contains('exfat') &&
+              !fsName.toLowerCase().contains('fat') &&
+              !fsName.toLowerCase().contains('exfat'));
 
       return DiskItemModel(
         deviceIdentifier: devId,
@@ -249,7 +390,7 @@ class DiskEngineUtils {
         filesystemType: fsType.isNotEmpty ? fsType : (isNTFS ? 'ntfs' : content),
         filesystemName: userVisibleFs.isNotEmpty
             ? userVisibleFs
-            : (fsName.isNotEmpty ? fsName : '未知文件系统'),
+            : (fsName.isNotEmpty ? fsName : (isNTFS ? 'Windows NT File System (NTFS)' : '未知文件系统')),
         isNTFS: isNTFS,
         isMounted: isMounted,
         isWritable: isWritable,
@@ -323,7 +464,7 @@ class DiskEngineUtils {
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      // 3. 构造基于 FUSE-T + NTFS-3G 的高级安全挂载脚本 (带环境自愈与容灾参数)
+      // 3. 构造基于 FUSE-T + NTFS-3G 的高级安全挂载脚本
       final mountCommand = '''
 # 确保 FUSE-T 动态库软链接就绪
 if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
@@ -354,7 +495,6 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
         return true;
       } else {
         loggerError('读写挂载失败: ${scriptResult.stderr} ${scriptResult.stdout}');
-        // 4. 挂载失败保护机制：清理空目录并安全回滚到系统原生挂载
         await _handleMountRollback(disk, targetMountPath, wasMounted);
 
         final errMsg = scriptResult.stderr.toString();
@@ -385,9 +525,7 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
   ) async {
     try {
       loggerWarn('正在执行安全回滚与挂载点清理: ${disk.deviceNode}');
-      // 清理可能残留的空挂载目录
       await Process.run('rmdir', [targetMountPath]);
-      // 若原本处于挂载状态，自动恢复原生只读挂载，防止磁盘丢失
       if (shouldRemount) {
         await Process.run('diskutil', ['mount', disk.deviceNode]);
       }
@@ -396,49 +534,76 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
     }
   }
 
-  /// 注释：安全卸载磁盘 (先同步缓存 sync)
-  /// 时间：2026/08/16 16:45
+  /// 注释：安全卸载并推出磁盘 (清理挂载、终止 ntfs-3g 进程并推出外置设备)
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   static Future<bool> unmountDisk(DiskItemModel disk) async {
     try {
       loggerInfo('正在安全卸载磁盘: ${disk.displayName} (${disk.deviceNode})');
-      // 强制刷盘，保证数据写入完整
       await Process.run('sync', []);
-      final res = await Process.run('diskutil', ['unmount', disk.deviceNode]);
-      if (res.exitCode == 0) {
-        loggerInfo('磁盘卸载成功: ${disk.displayName}');
-        LyUtils.showToast('已卸载【${disk.displayName}】');
-        return true;
-      } else {
-        // 尝试提权 umount
-        if (disk.mountPoint.isNotEmpty) {
-          final privRes = await LyUtils.runPrivilegedScript(
-            'sync; umount "${disk.mountPoint}" || diskutil unmount force ${disk.deviceNode}',
-          );
-          if (privRes.exitCode == 0) {
-            loggerInfo('强制卸载成功: ${disk.displayName}');
-            LyUtils.showToast('已卸载【${disk.displayName}】');
-            return true;
-          }
-        }
-        loggerError('卸载失败: ${res.stderr}');
-        LyUtils.showToast('卸载失败: ${res.stderr}', isError: true);
-        return false;
+
+      final devId = disk.deviceIdentifier;
+      final devNode = disk.deviceNode;
+      final mountPoint = disk.mountPoint;
+
+      final cleanupScript = '''
+sync
+
+# 杀掉可能占用此设备或挂载点的 ntfs-3g 进程
+pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
+if [ -n "$mountPoint" ]; then
+    pkill -9 -f "ntfs-3g.*$mountPoint" 2>/dev/null || true
+    umount "$mountPoint" 2>/dev/null || diskutil unmount force "$mountPoint" 2>/dev/null || true
+    rmdir "$mountPoint" 2>/dev/null || true
+fi
+
+# 卸载设备节点
+diskutil unmount "$devNode" 2>/dev/null || diskutil unmount force "$devNode" 2>/dev/null || true
+''';
+
+      await LyUtils.runPrivilegedScript(cleanupScript);
+
+      // 如果是可移动/外置设备，联动执行安全推出
+      if (disk.isRemovable || !disk.isInternal) {
+        final targetEjectDev = disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
+        loggerInfo('正在安全推出外置设备: $targetEjectDev');
+        await Process.run('diskutil', ['eject', targetEjectDev]);
       }
+
+      loggerInfo('磁盘卸载处理完毕: ${disk.displayName}');
+      LyUtils.showToast('已安全卸载【${disk.displayName}】');
+      return true;
     } catch (e) {
       loggerError('卸载异常: $e');
+      LyUtils.showToast('卸载失败: $e', isError: true);
       return false;
     }
   }
 
-  /// 注释：安全推出物理磁盘 (强制落盘 sync)
-  /// 时间：2026/08/16 16:45
+  /// 注释：安全推出物理磁盘
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   static Future<bool> ejectDisk(DiskItemModel disk) async {
     try {
       loggerInfo('正在安全推出磁盘: ${disk.displayName} (${disk.deviceNode})');
       await Process.run('sync', []);
-      final res = await Process.run('diskutil', ['eject', disk.deviceNode]);
+
+      final devId = disk.deviceIdentifier;
+      final mountPoint = disk.mountPoint;
+
+      final cleanupScript = '''
+sync
+pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
+if [ -n "$mountPoint" ]; then
+    pkill -9 -f "ntfs-3g.*$mountPoint" 2>/dev/null || true
+    umount "$mountPoint" 2>/dev/null || diskutil unmount force "$mountPoint" 2>/dev/null || true
+    rmdir "$mountPoint" 2>/dev/null || true
+fi
+''';
+      await LyUtils.runPrivilegedScript(cleanupScript);
+
+      final targetEjectDev = disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
+      final res = await Process.run('diskutil', ['eject', targetEjectDev]);
       if (res.exitCode == 0) {
         loggerInfo('磁盘已安全推出: ${disk.displayName}');
         LyUtils.showToast('【${disk.displayName}】已安全推出');
@@ -450,6 +615,7 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
       }
     } catch (e) {
       loggerError('推出磁盘异常: $e');
+      LyUtils.showToast('推出磁盘异常: $e', isError: true);
       return false;
     }
   }
@@ -467,7 +633,7 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
         final keyName = child.innerText.trim();
         final valueElement = children[i + 1];
         result[keyName] = _parsePlistValue(valueElement);
-        i++; // 跳过已消费的 value element
+        i++;
       }
     }
     return result;
@@ -514,6 +680,36 @@ class _MountInfo {
     required this.source,
     required this.mountPoint,
     required this.isWritable,
+  });
+}
+
+/// 注释：NTFS-3G 进程挂载内部信息
+/// 时间：2026/08/16 17:55
+/// 作者：郭翰林
+class _Ntfs3gProcessInfo {
+  final int pid;
+  final String deviceNode;
+  final String mountPoint;
+
+  _Ntfs3gProcessInfo({
+    required this.pid,
+    required this.deviceNode,
+    required this.mountPoint,
+  });
+}
+
+/// 注释：挂载点实时容量信息 (来自 df -k)
+/// 时间：2026/08/16 17:55
+/// 作者：郭翰林
+class _DiskSpaceInfo {
+  final int totalBytes;
+  final int usedBytes;
+  final int freeBytes;
+
+  _DiskSpaceInfo({
+    required this.totalBytes,
+    required this.usedBytes,
+    required this.freeBytes,
   });
 }
 

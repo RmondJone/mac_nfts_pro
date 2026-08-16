@@ -149,21 +149,33 @@ class HomeController extends GetxController {
   }
 
   /// 注释：卸载指定磁盘
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   Future<void> handleUnmount(DiskItemModel disk) async {
     final success = await DiskEngineUtils.unmountDisk(disk);
     if (success) {
+      diskList.removeWhere(
+        (d) =>
+            d.deviceIdentifier == disk.deviceIdentifier ||
+            (disk.parentDisk.isNotEmpty && d.parentDisk == disk.parentDisk),
+      );
+      await Future.delayed(const Duration(milliseconds: 300));
       await refreshDisks(silent: true);
     }
   }
 
   /// 注释：安全推出指定磁盘
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 17:55
   /// 作者：郭翰林
   Future<void> handleEject(DiskItemModel disk) async {
     final success = await DiskEngineUtils.ejectDisk(disk);
     if (success) {
+      diskList.removeWhere(
+        (d) =>
+            d.deviceIdentifier == disk.deviceIdentifier ||
+            (disk.parentDisk.isNotEmpty && d.parentDisk == disk.parentDisk),
+      );
+      await Future.delayed(const Duration(milliseconds: 300));
       await refreshDisks(silent: true);
     }
   }
