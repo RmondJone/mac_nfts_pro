@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../../defines/ly_colors.dart';
 import '../../defines/ly_constants.dart';
 import '../../defines/ly_fonts.dart';
+import '../../utils/load_image.dart';
 import '../../widgets/ly_input.dart';
 import 'controllers/home_controller.dart';
 import 'views/disk_item_card.dart';
@@ -200,10 +201,10 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             tooltip: '彻底卸载应用与驱动',
-            icon: const Icon(
-              Icons.delete_forever_rounded,
-              size: 20,
-              color: LyColors.error,
+            icon: const LoadAssetImage(
+              'ic_uninstall',
+              width: 20,
+              height: 20,
             ),
             onPressed: () => _showUninstallDialog(context),
           ),

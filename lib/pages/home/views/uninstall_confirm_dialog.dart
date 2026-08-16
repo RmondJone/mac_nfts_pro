@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../defines/ly_colors.dart';
 import '../../../defines/ly_fonts.dart';
+import '../../../utils/load_image.dart';
 import '../../../widgets/ly_button.dart';
 
 /// 注释：一键彻底卸载确认对话框
@@ -43,10 +44,10 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                     color: LyColors.error.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.delete_forever_rounded,
-                    color: LyColors.error,
-                    size: 26,
+                  child: const LoadAssetImage(
+                    'ic_uninstall',
+                    width: 26,
+                    height: 26,
                   ),
                 ),
                 const SizedBox(width: 14),
