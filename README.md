@@ -26,6 +26,10 @@
   <a href="#-一键彻底卸载">彻底卸载</a>
 </p>
 
+<br />
+
+<img src="preview/macOS_NTFS.png" width="860" alt="MacNFTSPro Preview" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.18);" />
+
 </div>
 
 ---
