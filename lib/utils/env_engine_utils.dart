@@ -194,4 +194,39 @@ if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
 fi
 ''';
   }
+
+  /// 注释：获取一键彻底卸载与系统清理 Shell 脚本
+  /// 时间：2026/08/16 17:35
+  /// 作者：郭翰林
+  static String getUninstallScript() {
+    return '''
+# 1. 卸载 FUSE-T 驱动框架
+if [ -f "/Library/Application Support/fuse-t/uninstall.sh" ]; then
+    bash "/Library/Application Support/fuse-t/uninstall.sh" 2>/dev/null || true
+fi
+rm -rf "/Library/Application Support/fuse-t" 2>/dev/null || true
+rm -rf "/Library/Frameworks/fuse_t.framework" 2>/dev/null || true
+rm -rf "/Library/Filesystems/fuse-t.fs" 2>/dev/null || true
+
+# 2. 清理 /usr/local 下的驱动与软链接
+rm -f /usr/local/bin/ntfs-3g
+rm -f /usr/local/lib/libntfs-3g*
+rm -f /usr/local/lib/libfuse-t*
+rm -f /usr/local/lib/libfuse.2.dylib
+rm -f /usr/local/lib/libfuse.dylib
+rm -f /usr/local/lib/libosxfuse*
+rm -f /usr/local/lib/libintl.8.dylib
+
+# 3. 清理用户配置与缓存
+USER_NAME=\${SUDO_USER:-\$USER}
+USER_HOME=\$(eval echo ~\$USER_NAME)
+rm -rf "\$USER_HOME/Library/Application Support/com.guohanlin.macntfspro"
+rm -rf "\$USER_HOME/Library/Caches/com.guohanlin.macntfspro"
+rm -rf "\$USER_HOME/Library/Preferences/com.guohanlin.macntfspro.plist"
+
+# 4. 删除 App 主程序 (若位于 /Applications)
+rm -rf "/Applications/MacNTFS Pro.app"
+''';
+  }
 }
+

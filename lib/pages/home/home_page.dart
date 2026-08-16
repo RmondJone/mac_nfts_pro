@@ -9,6 +9,7 @@ import 'views/disk_item_card.dart';
 import 'views/empty_disk_view.dart';
 import 'views/env_status_banner.dart';
 import 'views/log_console_view.dart';
+import 'views/uninstall_confirm_dialog.dart';
 
 /// 注释：MacNTFS Pro 首页管理界面
 /// 时间：2026/08/16 12:20
@@ -35,6 +36,21 @@ class _HomePageState extends State<HomePage> {
     searchEditingController.dispose();
     Get.delete<HomeController>();
     super.dispose();
+  }
+
+  /// 注释：弹出彻底卸载确认对话框
+  /// 时间：2026/08/16 17:35
+  /// 作者：郭翰林
+  void _showUninstallDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => UninstallConfirmDialog(
+        onConfirmUninstall: () async {
+          await pageController.handleUninstallApp();
+        },
+      ),
+    );
   }
 
   @override
@@ -175,6 +191,15 @@ class _HomePageState extends State<HomePage> {
             tooltip: '切换日志面板',
             icon: const Icon(Icons.terminal_rounded, size: 20),
             onPressed: () => pageController.showLogConsole.toggle(),
+          ),
+          IconButton(
+            tooltip: '彻底卸载应用与驱动',
+            icon: const Icon(
+              Icons.delete_forever_rounded,
+              size: 20,
+              color: LyColors.error,
+            ),
+            onPressed: () => _showUninstallDialog(context),
           ),
         ],
       ),

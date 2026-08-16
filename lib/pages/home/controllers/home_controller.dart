@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:get/get.dart';
 import '../../../events/disk_events.dart';
 import '../../../utils/disk_engine_utils.dart';
@@ -207,6 +208,30 @@ class HomeController extends GetxController {
       LyUtils.showToast('驱动配置异常: $e', isError: true);
     } finally {
       isInstallingDriver.value = false;
+    }
+  }
+
+  /// 注释：一键彻底卸载 App 本体与全部系统底层驱动依赖
+  /// 时间：2026/08/16 17:35
+  /// 作者：郭翰林
+  Future<void> handleUninstallApp() async {
+    try {
+      loggerInfo('准备执行一键彻底卸载与系统底层清理...');
+      final script = EnvEngineUtils.getUninstallScript();
+      final result = await LyUtils.runPrivilegedScript(script);
+
+      if (result.exitCode == 0) {
+        loggerInfo('🎉 系统底层驱动与 MacNTFS Pro 清理完毕，正在退出...');
+        LyUtils.showToast('卸载清理成功，应用将在 1 秒后自动退出');
+        await Future.delayed(const Duration(milliseconds: 1000));
+        exit(0);
+      } else {
+        loggerError('卸载执行失败: ${result.stderr}');
+        LyUtils.showToast('卸载失败: ${result.stderr}', isError: true);
+      }
+    } catch (e) {
+      loggerError('卸载异常: $e');
+      LyUtils.showToast('卸载异常: $e', isError: true);
     }
   }
 
