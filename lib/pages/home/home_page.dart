@@ -165,11 +165,17 @@ class _HomePageState extends State<HomePage> {
           ),
           const Spacer(),
           SizedBox(
-            width: 200,
+            width: 220,
             child: LyInput(
               controller: searchEditingController,
               hintText: '搜索 NTFS 磁盘/设备...',
-              prefixIcon: const Icon(Icons.search, size: 16),
+              prefixIcon: Icon(
+                Icons.search,
+                size: 16,
+                color: isDark
+                    ? LyColors.textSecondaryDark
+                    : LyColors.textSecondaryLight,
+              ),
               onChanged: (val) => pageController.searchKeyword.value = val,
             ),
           ),
