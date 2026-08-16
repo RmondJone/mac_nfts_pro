@@ -1,13 +1,13 @@
 #!/bin/bash
 # ==============================================================================
-# MacNTFS Pro 彻底卸载与清理脚本
+# MacNFTSPro 彻底卸载与清理脚本
 # 作者：郭翰林
 # 时间：2026/08/16 17:35
 # 说明：清理 App 本体、用户偏好配置、FUSE-T 及 /usr/local 下的 NTFS 驱动与动态库
 # ==============================================================================
 
 echo "================================================="
-echo "       正在执行 MacNTFS Pro 彻底清理与卸载        "
+echo "       正在执行 MacNFTSPro 彻底清理与卸载        "
 echo "================================================="
 
 # 请求管理员权限
@@ -16,8 +16,9 @@ if [ "$EUID" -ne 0 ]; then
     exec sudo "$0" "$@"
 fi
 
-# 1. 退出正在运行的 MacNTFS Pro
+# 1. 退出正在运行的 MacNFTSPro
 echo "1. 正在退出应用进程..."
+pkill -f "MacNFTSPro" 2>/dev/null || true
 pkill -f "MacNTFS Pro" 2>/dev/null || true
 pkill -f "mac_ntfs_pro" 2>/dev/null || true
 
@@ -41,7 +42,8 @@ rm -f /usr/local/lib/libosxfuse*
 rm -f /usr/local/lib/libintl.8.dylib
 
 # 4. 删除 App 主程序
-echo "4. 正在删除 /Applications/MacNTFS Pro.app..."
+echo "4. 正在删除 /Applications/MacNFTSPro.app..."
+rm -rf "/Applications/MacNFTSPro.app"
 rm -rf "/Applications/MacNTFS Pro.app"
 
 # 5. 清理当前登录用户的配置与缓存
@@ -52,6 +54,6 @@ rm -rf "$USER_HOME/Library/Caches/com.guohanlin.macntfspro"
 rm -rf "$USER_HOME/Library/Preferences/com.guohanlin.macntfspro.plist"
 
 echo "================================================="
-echo "  🎉 MacNTFS Pro 及其驱动依赖已全部彻底卸载干净！  "
+echo "  🎉 MacNFTSPro 及其驱动依赖已全部彻底卸载干净！  "
 echo "================================================="
 exit 0

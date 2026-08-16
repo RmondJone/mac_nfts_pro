@@ -56,7 +56,7 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '彻底卸载 MacNTFS Pro',
+                        '彻底卸载 MacNFTSPro',
                         style: LyFonts.titleMedium.copyWith(
                           color: isDark
                               ? LyColors.textPrimaryDark
@@ -106,12 +106,12 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
             ),
             _renderCleanItem(
               Icons.tune_rounded,
-              '清除 MacNTFS Pro 用户偏好配置与日志缓存',
+              '清除 MacNFTSPro 用户偏好配置与日志缓存',
               isDark,
             ),
             _renderCleanItem(
               Icons.delete_outline_rounded,
-              '删除 /Applications/MacNTFS Pro.app 应用程序本体',
+              '删除 /Applications/MacNFTSPro.app 应用程序本体',
               isDark,
             ),
             const SizedBox(height: 16),

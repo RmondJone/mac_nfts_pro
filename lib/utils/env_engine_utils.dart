@@ -273,6 +273,7 @@ rm -rf "\$USER_HOME/Library/Caches/com.guohanlin.macntfspro"
 rm -rf "\$USER_HOME/Library/Preferences/com.guohanlin.macntfspro.plist"
 
 # 4. 删除 App 主程序 (若位于 /Applications)
+rm -rf "/Applications/MacNFTSPro.app"
 rm -rf "/Applications/MacNTFS Pro.app"
 ''';
   }

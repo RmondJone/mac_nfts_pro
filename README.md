@@ -1,4 +1,4 @@
-# mac_ntfs_pro
+# MacNFTSPro
 
 A new Flutter project.
 

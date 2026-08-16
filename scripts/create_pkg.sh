@@ -1,15 +1,16 @@
 #!/bin/bash
 set -e
 
-APP_NAME="MacNTFS Pro"
+APP_NAME="MacNFTSPro"
 VERSION="1.0.0"
 BUNDLE_ID="com.guohanlin.macntfspro"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC_APP="$PROJECT_ROOT/build/macos/Build/Products/Release/mac_ntfs_pro.app"
-DEST_PKG="$HOME/Desktop/MacNTFS_Pro_Installer.pkg"
+SRC_APP="$PROJECT_ROOT/build/macos/Build/Products/Release/MacNFTSPro.app"
+[ ! -d "$SRC_APP" ] && SRC_APP="$PROJECT_ROOT/build/macos/Build/Products/Release/mac_ntfs_pro.app"
+DEST_PKG="$HOME/Desktop/MacNFTSPro_Installer.pkg"
 TMP_ROOT="/tmp/macntfs_pkg_root"
 TMP_SCRIPTS="/tmp/macntfs_pkg_scripts"
-TMP_COMPONENT_PKG="/tmp/MacNTFS_Pro_Component.pkg"
+TMP_COMPONENT_PKG="/tmp/MacNFTSPro_Component.pkg"
 
 echo "================================================="
 echo "  正在制作 $APP_NAME v$VERSION 一键安装包 (PKG)   "
@@ -47,10 +48,10 @@ cat << 'EOF' > "$TMP_SCRIPTS/postinstall"
 #!/bin/bash
 set -e
 
-APP_PATH="/Applications/MacNTFS Pro.app"
+APP_PATH="/Applications/MacNFTSPro.app"
 DRIVER_DIR="$APP_PATH/Contents/Resources/driver"
 
-echo "=== 执行 MacNTFS Pro postinstall 安装钩子 ==="
+echo "=== 执行 MacNFTSPro postinstall 安装钩子 ==="
 
 # 1. 静默安装 FUSE-T 驱动
 if [ -f "$DRIVER_DIR/fuse-t.pkg" ]; then
@@ -136,7 +137,7 @@ chmod 440 /private/etc/sudoers.d/mac_ntfs_pro
 chown root:wheel /private/etc/sudoers.d/mac_ntfs_pro
 visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc/sudoers.d/mac_ntfs_pro
 
-echo "=== MacNTFS Pro 驱动与免密环境部署完成！ ==="
+echo "=== MacNFTSPro 驱动与免密环境部署完成！ ==="
 exit 0
 EOF
 

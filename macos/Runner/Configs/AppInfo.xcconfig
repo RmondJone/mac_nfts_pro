@@ -5,7 +5,7 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = mac_ntfs_pro
+PRODUCT_NAME = MacNFTSPro
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.macntfs.pro.macNtfsPro

@@ -2,7 +2,7 @@
 /// 时间：2026/08/16 12:20
 /// 作者：郭翰林
 class LyConstants {
-  static const String appName = 'MacNTFS Pro';
+  static const String appName = 'MacNFTSPro';
   static const String appVersion = '1.0.0';
   static const String appAuthor = 'RmondJone';
   static const String appDesc = 'macOS NTFS 磁盘读写管理专家';
