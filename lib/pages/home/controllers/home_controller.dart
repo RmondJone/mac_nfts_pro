@@ -1,0 +1,212 @@
+import 'dart:async';
+import 'package:get/get.dart';
+import '../../../events/disk_events.dart';
+import '../../../utils/disk_engine_utils.dart';
+import '../../../utils/env_engine_utils.dart';
+import '../../../utils/event_bus_utils.dart';
+import '../../../utils/logger_utils.dart';
+import '../../../utils/ly_utils.dart';
+import '../models/disk_item_model.dart';
+import '../models/env_status_model.dart';
+
+/// 注释：首页磁盘管理控制器
+/// 时间：2026/08/16 12:20
+/// 作者：郭翰林
+class HomeController extends GetxController {
+  // 磁盘列表与加载状态
+  final RxList<DiskItemModel> diskList = <DiskItemModel>[].obs;
+  final RxBool isLoadingDisks = false.obs;
+  final RxString mountingDiskNode = ''.obs;
+
+  // 驱动与环境状态
+  final Rx<EnvStatusModel?> envStatus = Rx<EnvStatusModel?>(null);
+  final RxBool isInstallingDriver = false.obs;
+
+  // 搜索与过滤
+  final RxString searchKeyword = ''.obs;
+  final RxBool onlyShowNTFS = false.obs;
+
+  // 控制台日志列表
+  final RxList<LogMessageEvent> logList = <LogMessageEvent>[].obs;
+  final RxBool showLogConsole = false.obs;
+
+  // 定时与事件订阅
+  Timer? _pollingTimer;
+  StreamSubscription<LogMessageEvent>? _logSubscription;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _initSubscriptions();
+    refreshAll();
+    _startPolling();
+  }
+
+  @override
+  void onClose() {
+    _pollingTimer?.cancel();
+    _logSubscription?.cancel();
+    super.onClose();
+  }
+
+  /// 注释：初始化事件监听
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  void _initSubscriptions() {
+    _logSubscription = eventBus.on<LogMessageEvent>().listen((event) {
+      logList.insert(0, event);
+      if (logList.length > 200) {
+        logList.removeLast();
+      }
+    });
+  }
+
+  /// 注释：开启磁盘状态周期轮询
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (mountingDiskNode.isEmpty && !isInstallingDriver.value) {
+        refreshDisks(silent: true);
+      }
+    });
+  }
+
+  /// 注释：一键全量刷新
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> refreshAll() async {
+    await refreshEnvironment();
+    await refreshDisks();
+  }
+
+  /// 注释：刷新环境状态
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> refreshEnvironment() async {
+    final status = await EnvEngineUtils.checkEnvironment();
+    envStatus.value = status;
+  }
+
+  /// 注释：刷新磁盘列表
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> refreshDisks({bool silent = false}) async {
+    if (!silent) {
+      isLoadingDisks.value = true;
+    }
+    try {
+      final list = await DiskEngineUtils.scanDisks();
+      diskList.assignAll(list);
+      eventBus.fire(DiskRefreshedEvent(list.length));
+    } catch (e) {
+      loggerError('刷新磁盘列表失败: $e');
+    } finally {
+      if (!silent) {
+        isLoadingDisks.value = false;
+      }
+    }
+  }
+
+  /// 注释：获取经过过滤后的磁盘列表
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  List<DiskItemModel> get filteredDisks {
+    return diskList.where((d) {
+      if (onlyShowNTFS.value && !d.isNTFS) {
+        return false;
+      }
+      if (searchKeyword.value.trim().isNotEmpty) {
+        final kw = searchKeyword.value.toLowerCase().trim();
+        final matchName = d.volumeName.toLowerCase().contains(kw);
+        final matchDev = d.deviceIdentifier.toLowerCase().contains(kw);
+        final matchFs = d.filesystemName.toLowerCase().contains(kw);
+        if (!matchName && !matchDev && !matchFs) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// 注释：一键以读写模式挂载指定磁盘
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> handleMountReadWrite(DiskItemModel disk) async {
+    final env = envStatus.value;
+    if (env == null) {
+      LyUtils.showToast('环境信息未准备就绪，请稍后', isError: true);
+      return;
+    }
+
+    mountingDiskNode.value = disk.deviceNode;
+    try {
+      final success = await DiskEngineUtils.mountReadWrite(disk, env);
+      if (success) {
+        await refreshDisks(silent: true);
+      }
+    } finally {
+      mountingDiskNode.value = '';
+    }
+  }
+
+  /// 注释：卸载指定磁盘
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> handleUnmount(DiskItemModel disk) async {
+    final success = await DiskEngineUtils.unmountDisk(disk);
+    if (success) {
+      await refreshDisks(silent: true);
+    }
+  }
+
+  /// 注释：安全推出指定磁盘
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> handleEject(DiskItemModel disk) async {
+    final success = await DiskEngineUtils.ejectDisk(disk);
+    if (success) {
+      await refreshDisks(silent: true);
+    }
+  }
+
+  /// 注释：在访达中打开磁盘
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  void handleOpenFinder(DiskItemModel disk) {
+    if (disk.mountPoint.isNotEmpty) {
+      LyUtils.openInFinder(disk.mountPoint);
+    } else {
+      LyUtils.showToast('该磁盘尚未挂载，请先挂载', isError: true);
+    }
+  }
+
+  /// 注释：一键安装/配置推荐驱动
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  Future<void> handleInstallDrivers() async {
+    isInstallingDriver.value = true;
+    try {
+      loggerInfo('开始执行一键驱动配置脚本...');
+      final script = EnvEngineUtils.getInstallScript();
+      final result = await LyUtils.runPrivilegedScript(script);
+      if (result.exitCode == 0) {
+        LyUtils.showToast('驱动安装/配置完成！');
+        await refreshEnvironment();
+      } else {
+        loggerError('驱动安装失败: ${result.stderr}');
+        LyUtils.showToast('驱动配置失败: ${result.stderr}', isError: true);
+      }
+    } catch (e) {
+      loggerError('一键驱动安装异常: $e');
+      LyUtils.showToast('驱动配置异常: $e', isError: true);
+    } finally {
+      isInstallingDriver.value = false;
+    }
+  }
+
+  /// 注释：清空日志
+  /// 时间：2026/08/16 12:20
+  /// 作者：郭翰林
+  void clearLogs() {
+    logList.clear();
+  }
+}
