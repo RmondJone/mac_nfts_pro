@@ -199,7 +199,9 @@ class DiskEngineUtils {
         ntfs3gMap,
         dfSpaceMap,
       );
-      if (item != null && !_isSystemInternalIgnore(item)) {
+      if (item != null &&
+          !_isSystemInternalIgnore(item) &&
+          !(item.totalSize <= 0 && !item.isMounted)) {
         results.add(item);
       }
       return;
@@ -217,7 +219,9 @@ class DiskEngineUtils {
             ntfs3gMap,
             dfSpaceMap,
           );
-          if (item != null && !_isSystemInternalIgnore(item)) {
+          if (item != null &&
+              !_isSystemInternalIgnore(item) &&
+              !(item.totalSize <= 0 && !item.isMounted)) {
             results.add(item);
           }
         }
@@ -236,7 +240,9 @@ class DiskEngineUtils {
             ntfs3gMap,
             dfSpaceMap,
           );
-          if (item != null && !_isSystemInternalIgnore(item)) {
+          if (item != null &&
+              !_isSystemInternalIgnore(item) &&
+              !(item.totalSize <= 0 && !item.isMounted)) {
             results.add(item);
           }
         }
@@ -534,45 +540,82 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
     }
   }
 
-  /// 注释：安全卸载并推出磁盘 (清理挂载、终止 ntfs-3g 进程并推出外置设备)
-  /// 时间：2026/08/16 17:55
+  /// 注释：安全卸载磁盘 (优先原生免密卸载，彻底消除不必要的密码弹窗)
+  /// 时间：2026/08/16 18:10
   /// 作者：郭翰林
   static Future<bool> unmountDisk(DiskItemModel disk) async {
     try {
       loggerInfo('正在安全卸载磁盘: ${disk.displayName} (${disk.deviceNode})');
       await Process.run('sync', []);
 
-      final devId = disk.deviceIdentifier;
-      final devNode = disk.deviceNode;
       final mountPoint = disk.mountPoint;
+      final devNode = disk.deviceNode;
 
-      final cleanupScript = '''
-sync
+      bool unmounted = false;
 
-# 杀掉可能占用此设备或挂载点的 ntfs-3g 进程
-pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
-if [ -n "$mountPoint" ]; then
-    pkill -9 -f "ntfs-3g.*$mountPoint" 2>/dev/null || true
-    umount "$mountPoint" 2>/dev/null || diskutil unmount force "$mountPoint" 2>/dev/null || true
-    rmdir "$mountPoint" 2>/dev/null || true
-fi
-
-# 卸载设备节点
-diskutil unmount "$devNode" 2>/dev/null || diskutil unmount force "$devNode" 2>/dev/null || true
-''';
-
-      await LyUtils.runPrivilegedScript(cleanupScript);
-
-      // 如果是可移动/外置设备，联动执行安全推出
-      if (disk.isRemovable || !disk.isInternal) {
-        final targetEjectDev = disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
-        loggerInfo('正在安全推出外置设备: $targetEjectDev');
-        await Process.run('diskutil', ['eject', targetEjectDev]);
+      // 1. 如果有挂载点，优先卸载挂载点 (支持 FUSE-T / NFS / 原生挂载，完全免密)
+      if (mountPoint.isNotEmpty) {
+        final res = await Process.run('diskutil', ['unmount', mountPoint]);
+        if (res.exitCode == 0) {
+          unmounted = true;
+          loggerInfo('成功免密卸载挂载点: $mountPoint');
+        } else {
+          final forceRes = await Process.run('diskutil', ['unmount', 'force', mountPoint]);
+          if (forceRes.exitCode == 0) {
+            unmounted = true;
+            loggerInfo('成功免密强制卸载挂载点: $mountPoint');
+          }
+        }
       }
 
-      loggerInfo('磁盘卸载处理完毕: ${disk.displayName}');
-      LyUtils.showToast('已安全卸载【${disk.displayName}】');
-      return true;
+      // 2. 尝试卸载设备节点 (完全免密)
+      final devRes = await Process.run('diskutil', ['unmount', devNode]);
+      if (devRes.exitCode == 0) {
+        unmounted = true;
+        loggerInfo('成功免密卸载设备节点: $devNode');
+      }
+
+      // 3. 如果是外置/可移动设备（U盘、移动硬盘），卸载后联动彻底安全推出脱机
+      if (disk.isRemovable || !disk.isInternal) {
+        final targetEjectDev =
+            disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
+        loggerInfo('外置设备卸载联动执行安全推出: $targetEjectDev');
+        final ejectRes = await Process.run('diskutil', ['eject', targetEjectDev]);
+        if (ejectRes.exitCode == 0) {
+          loggerInfo('外置磁盘已彻底安全推出: ${disk.displayName}');
+          LyUtils.showToast('【${disk.displayName}】已安全卸载并推出');
+          return true;
+        }
+      }
+
+      // 4. 如果免密卸载成功，直接返回
+      if (unmounted) {
+        loggerInfo('磁盘卸载处理完毕: ${disk.displayName}');
+        LyUtils.showToast('已安全卸载【${disk.displayName}】');
+        return true;
+      }
+
+      // 4. 若普通卸载仍未成功（极少见物理占用情况），尝试提权清理兜底
+      loggerWarn('普通免密卸载未能成功，尝试提权清理...');
+      final devId = disk.deviceIdentifier;
+      final cleanupScript = '''
+sync
+if [ -n "$mountPoint" ]; then
+    diskutil unmount force "$mountPoint" 2>/dev/null || umount -f "$mountPoint" 2>/dev/null || true
+    rmdir "$mountPoint" 2>/dev/null || true
+fi
+diskutil unmount force "$devNode" 2>/dev/null || true
+pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
+''';
+      final privRes = await LyUtils.runPrivilegedScript(cleanupScript);
+      if (privRes.exitCode == 0) {
+        loggerInfo('磁盘提权卸载处理完毕: ${disk.displayName}');
+        LyUtils.showToast('已安全卸载【${disk.displayName}】');
+        return true;
+      } else {
+        LyUtils.showToast('卸载失败: 磁盘可能正被其他程序占用', isError: true);
+        return false;
+      }
     } catch (e) {
       loggerError('卸载异常: $e');
       LyUtils.showToast('卸载失败: $e', isError: true);
@@ -580,37 +623,46 @@ diskutil unmount "$devNode" 2>/dev/null || diskutil unmount force "$devNode" 2>/
     }
   }
 
-  /// 注释：安全推出物理磁盘
-  /// 时间：2026/08/16 17:55
+  /// 注释：安全推出物理磁盘 (原生免密推出)
+  /// 时间：2026/08/16 18:10
   /// 作者：郭翰林
   static Future<bool> ejectDisk(DiskItemModel disk) async {
     try {
       loggerInfo('正在安全推出磁盘: ${disk.displayName} (${disk.deviceNode})');
       await Process.run('sync', []);
 
-      final devId = disk.deviceIdentifier;
       final mountPoint = disk.mountPoint;
+      final devNode = disk.deviceNode;
+      final targetEjectDev =
+          disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
 
-      final cleanupScript = '''
-sync
-pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
-if [ -n "$mountPoint" ]; then
-    pkill -9 -f "ntfs-3g.*$mountPoint" 2>/dev/null || true
-    umount "$mountPoint" 2>/dev/null || diskutil unmount force "$mountPoint" 2>/dev/null || true
-    rmdir "$mountPoint" 2>/dev/null || true
-fi
-''';
-      await LyUtils.runPrivilegedScript(cleanupScript);
+      // 1. 如果还在挂载，先执行免密卸载
+      if (mountPoint.isNotEmpty) {
+        await Process.run('diskutil', ['unmount', mountPoint]);
+      }
+      await Process.run('diskutil', ['unmount', devNode]);
 
-      final targetEjectDev = disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
+      // 2. 直接执行原生免密推出
       final res = await Process.run('diskutil', ['eject', targetEjectDev]);
       if (res.exitCode == 0) {
         loggerInfo('磁盘已安全推出: ${disk.displayName}');
         LyUtils.showToast('【${disk.displayName}】已安全推出');
         return true;
+      }
+
+      // 3. 若普通推出失败，尝试 force unmount 后重试推出 (依然保持免密)
+      if (mountPoint.isNotEmpty) {
+        await Process.run('diskutil', ['unmount', 'force', mountPoint]);
+      }
+      await Process.run('diskutil', ['unmount', 'force', devNode]);
+      final retryRes = await Process.run('diskutil', ['eject', targetEjectDev]);
+      if (retryRes.exitCode == 0) {
+        loggerInfo('磁盘已安全推出 (重试成功): ${disk.displayName}');
+        LyUtils.showToast('【${disk.displayName}】已安全推出');
+        return true;
       } else {
-        loggerError('推出失败: ${res.stderr}');
-        LyUtils.showToast('推出失败: ${res.stderr}', isError: true);
+        loggerError('推出失败: ${retryRes.stderr}');
+        LyUtils.showToast('推出失败: ${retryRes.stderr.toString().trim()}', isError: true);
         return false;
       }
     } catch (e) {

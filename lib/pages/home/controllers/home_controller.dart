@@ -108,14 +108,20 @@ class HomeController extends GetxController {
     }
   }
 
-  /// 注释：获取经过过滤后的磁盘列表 (仅展示 NTFS 格式磁盘)
-  /// 时间：2026/08/16 12:20
+  /// 注释：获取经过过滤后的磁盘列表 (仅展示当前已挂载的 NTFS 格式磁盘)
+  /// 时间：2026/08/16 18:20
   /// 作者：郭翰林
   List<DiskItemModel> get filteredDisks {
     return diskList.where((d) {
+      // 1. 过滤非 NTFS 磁盘
       if (!d.isNTFS) {
         return false;
       }
+      // 2. 过滤未挂载的磁盘 (用户在桌面/访达/App推出或卸载后不展示)
+      if (!d.isMounted) {
+        return false;
+      }
+      // 3. 搜索关键词过滤
       if (searchKeyword.value.trim().isNotEmpty) {
         final kw = searchKeyword.value.toLowerCase().trim();
         final matchName = d.volumeName.toLowerCase().contains(kw);

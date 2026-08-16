@@ -146,12 +146,55 @@ class DiskItemCard extends StatelessWidget {
     );
   }
 
-  /// 注释：绘制磁盘容量使用进度条
-  /// 时间：2026/08/16 12:20
+  /// 注释：绘制磁盘容量使用进度条 (智能区分挂载与未挂载状态)
+  /// 时间：2026/08/16 18:15
   /// 作者：郭翰林
   Widget renderCapacityBar(BuildContext context, bool isDark) {
-    final usedStr = LyUtils.formatBytes(disk.usedSpace);
     final totalStr = LyUtils.formatBytes(disk.totalSize);
+
+    // 未挂载状态下，macOS 无法读取内部已用/剩余簇，直接显示总容量与提示
+    if (!disk.isMounted) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '总容量: $totalStr',
+                style: LyFonts.bodySmall.copyWith(
+                  color: isDark
+                      ? LyColors.textSecondaryDark
+                      : LyColors.textSecondaryLight,
+                ),
+              ),
+              Text(
+                '未挂载 (挂载后显示实时已用空间)',
+                style: LyFonts.bodySmall.copyWith(
+                  color: isDark
+                      ? LyColors.textSecondaryDark
+                      : LyColors.textSecondaryLight,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: 0.0,
+              minHeight: 6,
+              backgroundColor: isDark
+                  ? const Color(0xFF38383A)
+                  : const Color(0xFFE5E5EA),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.grey),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final usedStr = LyUtils.formatBytes(disk.usedSpace);
     final freeStr = LyUtils.formatBytes(disk.freeSpace);
     final percentage = (disk.usagePercentage * 100).toStringAsFixed(1);
 
