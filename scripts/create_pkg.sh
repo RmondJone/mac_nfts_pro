@@ -14,7 +14,14 @@ echo "================================================="
 echo "  正在制作 $APP_NAME v$VERSION 一键安装包 (PKG)   "
 echo "================================================="
 
-# 1. 检查并定位 Release App 编译产物
+# 1. 强制清理旧构建产物并全量重新编译
+echo "🧹 正在清理旧的 build 构建缓存..."
+rm -rf "$PROJECT_ROOT/build"
+
+echo "🚀 正在重新编译 Flutter macOS Release 产物..."
+cd "$PROJECT_ROOT"
+flutter build macos --release
+
 RELEASE_DIR="$PROJECT_ROOT/build/macos/Build/Products/Release"
 find_src_app() {
     if [ -d "$RELEASE_DIR/$APP_NAME.app" ]; then
@@ -27,12 +34,6 @@ find_src_app() {
 }
 
 SRC_APP="$(find_src_app)"
-
-if [ -z "$SRC_APP" ] || [ ! -d "$SRC_APP" ]; then
-    echo "⚠️ 未找到 Release 编译产物，正在执行 flutter build macos --release..."
-    flutter build macos --release
-    SRC_APP="$(find_src_app)"
-fi
 
 if [ -z "$SRC_APP" ] || [ ! -d "$SRC_APP" ]; then
     echo "❌ 错误: 未能在 $RELEASE_DIR 下找到有效的 macOS .app 编译产物！"

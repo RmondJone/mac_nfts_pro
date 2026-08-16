@@ -245,7 +245,27 @@ visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc
   /// 时间：2026/08/16 18:45
   /// 作者：郭翰林
   static String getUninstallScript() {
+    final userHome = Platform.environment['HOME'] ?? '';
+    final cleanUserDirCmd = userHome.isNotEmpty
+        ? '''
+# 3. 清理当前登录用户配置与缓存
+rm -rf "$userHome/Library/Application Support/com.guohanlin.macntfspro"
+rm -rf "$userHome/Library/Caches/com.guohanlin.macntfspro"
+rm -rf "$userHome/Library/Preferences/com.guohanlin.macntfspro.plist"
+'''
+        : '''
+# 3. 清理当前登录用户配置与缓存
+CONSOLE_USER=\$(stat -f "%Su" /dev/console 2>/dev/null || echo "\$USER")
+USER_HOME=\$(eval echo "~\$CONSOLE_USER")
+rm -rf "\$USER_HOME/Library/Application Support/com.guohanlin.macntfspro"
+rm -rf "\$USER_HOME/Library/Caches/com.guohanlin.macntfspro"
+rm -rf "\$USER_HOME/Library/Preferences/com.guohanlin.macntfspro.plist"
+''';
+
     return '''
+# 0. 终止所有运行中的 ntfs-3g 挂载进程
+pkill -9 -f "ntfs-3g" 2>/dev/null || true
+
 # 1. 卸载 FUSE-T 驱动框架
 if [ -f "/Library/Application Support/fuse-t/uninstall.sh" ]; then
     bash "/Library/Application Support/fuse-t/uninstall.sh" 2>/dev/null || true
@@ -265,12 +285,7 @@ rm -f /usr/local/lib/libfuse.dylib
 rm -f /usr/local/lib/libosxfuse*
 rm -f /usr/local/lib/libintl.8.dylib
 
-# 3. 清理用户配置与缓存
-USER_NAME=\${SUDO_USER:-\$USER}
-USER_HOME=\$(eval echo ~\$USER_NAME)
-rm -rf "\$USER_HOME/Library/Application Support/com.guohanlin.macntfspro"
-rm -rf "\$USER_HOME/Library/Caches/com.guohanlin.macntfspro"
-rm -rf "\$USER_HOME/Library/Preferences/com.guohanlin.macntfspro.plist"
+$cleanUserDirCmd
 
 # 4. 删除 App 主程序 (若位于 /Applications)
 rm -rf "/Applications/macOS NFTS.app"
