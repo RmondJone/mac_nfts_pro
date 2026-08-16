@@ -42,7 +42,7 @@ flowchart TD
 1. **解除原生占用**：若磁盘已被系统自动以只读方式挂载，先调用 `diskutil unmount /dev/diskXsY` 卸载。
 2. **纯粹用户态 FUSE-T + NTFS-3G 挂载**：
    - 使用 `ntfs-3g` 将分区挂载到 `/Volumes/<卷名>`；
-   - 注入优化参数：`-o local -o allow_other -o auto_xattr -o volname="<卷名>"`；
+   - 注入优化参数：`-o local -o allow_other -o auto_xattr -o windows_names -o hide_hid_files -o hide_dot_files -o volname="<卷名>"`；
    - **免关 SIP，免降级安全策略**：FUSE-T 基于 macOS 本地 NFS 协议栈桥接，无需像旧版 macFUSE 那样进恢复模式降低系统安全级别。
 3. **macOS 管理员提权（Privileged Script Execution）**：
    挂载 NTFS 到系统 `/Volumes` 目录需要 root 权限。工程通过 AppleScript 的 `do shell script "..." with administrator privileges`（经由 `osascript`）调起 macOS 原生授权弹窗，实现安全提权。

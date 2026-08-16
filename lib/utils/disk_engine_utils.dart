@@ -486,8 +486,8 @@ diskutil unmount "${disk.deviceNode}" 2>/dev/null || true
 # 创建挂载目标目录
 mkdir -p "$targetMountPath"
 
-# 执行 NTFS-3G 读写挂载
-${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,volname="$mountPointName"
+# 执行 NTFS-3G 读写挂载 (包含 hide_hid_files 隐藏 Windows 系统与隐藏文件夹如 found.xxx, hide_dot_files 兼容 Mac 点文件)
+${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,hide_hid_files,hide_dot_files,volname="$mountPointName"
 ''';
 
       loggerInfo('执行安全读写挂载脚本:\n$mountCommand');
