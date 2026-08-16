@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/images/app_icon.png" width="128" height="128" alt="MacNFTSPro Logo" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);" />
+<img src="assets/images/app_icon.png" width="128" height="128" alt="macOS NFTS Logo" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);" />
 
-# MacNFTSPro
+# macOS NFTS
 
 ### 专为 macOS 打造的高性能 · 轻量级 · 免降安全策略的 NTFS 磁盘读写管理专家
 
@@ -28,13 +28,13 @@
 
 <br />
 
-<img src="preview/macOS_NTFS.png" width="860" alt="MacNFTSPro Preview" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.18);" />
+<img src="preview/macOS_NTFS.png" width="860" alt="macOS NFTS Preview" style="border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.18);" />
 
 </div>
 
 ---
 
-## 💡 为什么选择 MacNFTSPro？
+## 💡 为什么选择 macOS NFTS？
 
 macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**默认仅开放只读权限（Read-Only）**，导致用户无法直接往移动硬盘中写入、修改或删除文件。
 
@@ -46,7 +46,7 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
 
 ### 🌟 方案全方位对比
 
-| 对比维度 | **MacNFTSPro (本项目)** | 商业 NTFS 软件 (如 Paragon) | 旧版 macFUSE 方案 | 原生终端手动挂载 |
+| 对比维度 | **macOS NFTS (本项目)** | 商业 NTFS 软件 (如 Paragon) | 旧版 macFUSE 方案 | 原生终端手动挂载 |
 | :--- | :--- | :--- | :--- | :--- |
 | **SIP / 安全策略** | 🛡️ **免关 SIP，免降安全等级** | 需要安装系统扩展 (KEXT/SEXT) | ⚠️ 需关 SIP 并降级安全策略 | ⚠️ 极不稳定且新系统常失效 |
 | **内核安全性** | 🟢 **纯用户态 (FUSE-T NFS 桥接)** | 需高权限内核扩展 | 依赖内核注入，易引发 Kernel Panic | 原生只读驱动强行挂载 |
@@ -72,10 +72,10 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
 ## 📥 安装指南
 
 ### 1. 获取安装包
-下载最新的 **`MacNFTSPro_Installer.pkg`** 安装包。
+下载最新的 **`macOS NFTS_Installer.pkg`** 安装包。
 
 ### 2. 标准一键安装
-双击运行 `MacNFTSPro_Installer.pkg`，根据安装器指引点击“继续”即可完成安装。安装程序会自动部署应用本体及底层驱动环境。
+双击运行 `macOS NFTS_Installer.pkg`，根据安装器指引点击“继续”即可完成安装。安装程序会自动部署应用本体及底层驱动环境。
 
 ---
 
@@ -90,7 +90,7 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│ ⚠️ 无法打开“MacNFTSPro_Installer.pkg”，因为 Apple 无法  │
+│ ⚠️ 无法打开“macOS NFTS_Installer.pkg”，因为 Apple 无法  │
 │    检查其是否包含恶意软件。                             │
 │    macOS 无法验证此软件包是否来自已知开发者。            │
 │                      [ 移到废纸篓 ]   [ 取消 ]           │
@@ -100,7 +100,7 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
 #### 解决方案（任选一种）：
 
 - **方法 ①（推荐，仅需 2 秒）**：
-  1. 在 `MacNFTSPro_Installer.pkg` 安装包图标上 **右键（或按住键盘 Control 键点按）**；
+  1. 在 `macOS NFTS_Installer.pkg` 安装包图标上 **右键（或按住键盘 Control 键点按）**；
   2. 在弹出的右键菜单中点击 **【打开】**；
   3. 此时弹出的对话框会出现 **【打开】** 或 **【仍要打开】** 按钮，点击即可顺利开始安装。
 
@@ -108,7 +108,7 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
   1. 打开 Mac **【系统设置】（System Settings）**；
   2. 进入 **【隐私与安全性】（Privacy & Security）**；
   3. 向下滚动至底部的“安全性”板块；
-  4. 您会看到提示：*“已阻止使用 MacNFTSPro_Installer.pkg，因为来自身份不明的开发者”*；
+  4. 您会看到提示：*“已阻止使用 macOS NFTS_Installer.pkg，因为来自身份不明的开发者”*；
   5. 点击其右侧的 **【仍要打开】** 按钮即可。
 
 ---
@@ -117,7 +117,7 @@ macOS 原生出于版权与策略考量，对 NTFS 格式的外置磁盘/U 盘**
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│ ❌ “MacNFTSPro”已损坏，无法打开。                      │
+│ ❌ “macOS NFTS”已损坏，无法打开。                      │
 │    你应该将它移到废纸篓。                               │
 │                      [ 移到废纸篓 ]   [ 取消 ]           │
 └────────────────────────────────────────────────────────┘
@@ -130,10 +130,10 @@ macOS 13 Ventura / 14 Sonoma / 15 Sequoia 对所有未经公证的网络下载�
 1. 按键盘快捷键 `Command + 空格`，在 Spotlight 搜索框输入 **终端**（Terminal）并回车打开；
 2. 复制并粘贴以下命令，按回车执行：
    ```bash
-   sudo xattr -rd com.apple.quarantine /Applications/MacNFTSPro.app
+   sudo xattr -rd com.apple.quarantine /Applications/macOS NFTS.app
    ```
 3. 终端会提示输入当前 Mac 用户的开机锁屏密码（输入时密码不会显示，直接盲输完毕按回车）；
-4. 执行完成后，返回“应用程序”再次双击 **MacNFTSPro** 即可秒速打开！
+4. 执行完成后，返回“应用程序”再次双击 **macOS NFTS** 即可秒速打开！
 
 ---
 
@@ -148,7 +148,7 @@ graph LR
 ```
 
 ### 步骤 1：连接设备
-将 NTFS 格式的移动硬盘、U 盘连接至 Mac，启动 **MacNFTSPro**，主界面将自动扫描并展示所有分区信息（包括卷名、设备节点、文件系统与剩余空间）。
+将 NTFS 格式的移动硬盘、U 盘连接至 Mac，启动 **macOS NFTS**，主界面将自动扫描并展示所有分区信息（包括卷名、设备节点、文件系统与剩余空间）。
 
 ### 步骤 2：一键读写挂载
 在目标 NTFS 分区卡片上，点击 **【以读写模式挂载】**：
@@ -167,11 +167,11 @@ graph LR
 
 ## 🛠️ 技术架构与工作原理
 
-MacNFTSPro 采用现代客户端与系统级驱动服务协同架构：
+macOS NFTS 采用现代客户端与系统级驱动服务协同架构：
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                     MacNFTSPro Desktop UI                       │
+│                     macOS NFTS Desktop UI                       │
 │             (Flutter 3 + GetX + ScreenUtil + EventBus)          │
 └────────────────────────────────┬────────────────────────────────┘
                                  │
@@ -221,7 +221,7 @@ MacNFTSPro 采用现代客户端与系统级驱动服务协同架构：
 <details>
 <summary><b>Q3: 如果 NTFS 硬盘在 Windows 上未正常弹出导致脏卷（Dirty Volume）怎么办？</b></summary>
 <br>
-MacNFTSPro 在底层挂载指令中默认注入了 <code>recover</code> 与 <code>remove_hiberfile</code> 修复参数，能够自动清理 Windows 快速休眠锁定的元数据并正常挂载。
+macOS NFTS 在底层挂载指令中默认注入了 <code>recover</code> 与 <code>remove_hiberfile</code> 修复参数，能够自动清理 Windows 快速休眠锁定的元数据并正常挂载。
 </details>
 
 <details>
@@ -237,7 +237,7 @@ MacNFTSPro 在底层挂载指令中默认注入了 <code>recover</code> 与 <cod
 如果您不再需要本工具，我们提供了完备的清理机制，杜绝任何驱动与文件残留：
 
 - **方式 1（推荐，界面一键卸载）**：
-  在 MacNFTSPro 界面右上角点击 **【彻底卸载应用与驱动】** 图标，在弹出的对话框中确认，应用将自动清除自身、用户偏好配置、FUSE-T 驱动框架及 `/usr/local` 下的相关库文件并安全退出。
+  在 macOS NFTS 界面右上角点击 **【彻底卸载应用与驱动】** 图标，在弹出的对话框中确认，应用将自动清除自身、用户偏好配置、FUSE-T 驱动框架及 `/usr/local` 下的相关库文件并安全退出。
 - **方式 2（命令行清理脚本）**：
   在终端中执行项目内置的卸载清理脚本：
   ```bash
@@ -264,7 +264,7 @@ flutter build macos --release
 chmod +x scripts/create_pkg.sh
 ./scripts/create_pkg.sh
 ```
-构建完成后将在桌面输出：`~/Desktop/MacNFTSPro_Installer.pkg`。
+构建完成后将在桌面输出：`~/Desktop/macOS NFTS_Installer.pkg`。
 
 ---
 
