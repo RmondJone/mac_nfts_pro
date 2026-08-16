@@ -326,20 +326,6 @@ class DiskEngineUtils {
               !fsName.toLowerCase().contains('fat') &&
               !fsName.toLowerCase().contains('exfat'));
 
-      // 2. 若 NTFS 磁盘处于未挂载状态（如在桌面被用户推出），刷新时自动恢复为系统原生只读挂载
-      if (isNTFS && !isMounted) {
-        final remountData = await _remountAsNativeReadOnly(devNode, devId);
-        if (remountData.containsKey('mountPoint')) {
-          mountPoint = remountData['mountPoint']!;
-          isMounted = true;
-          isWritable = false;
-          if (remountData.containsKey('volumeName') &&
-              remountData['volumeName']!.isNotEmpty) {
-            volumeName = remountData['volumeName']!;
-          }
-        }
-      }
-
       // 卷名智能提取：若 VolumeName 为空，尝试从挂载点或介质名提取
       if (volumeName.isEmpty) {
         if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
@@ -354,7 +340,7 @@ class DiskEngineUtils {
         }
       }
 
-      // 3. 计算磁盘容量与可用空间
+      // 2. 计算磁盘容量与可用空间
       final spaceInfo = await _calculateDiskSpace(
         info,
         isMounted,
@@ -390,44 +376,6 @@ class DiskEngineUtils {
       loggerWarn('解析分区 $devId 详情失败: $e');
       return null;
     }
-  }
-
-  /// 注释：尝试将未挂载的 NTFS 分区恢复为 macOS 系统原生初始化只读挂载
-  /// 时间：2026/08/16 19:00
-  /// 作者：郭翰林
-  static Future<Map<String, String>> _remountAsNativeReadOnly(
-    String devNode,
-    String devId,
-  ) async {
-    final Map<String, String> resMap = {};
-    try {
-      // 1. 清理可能残留的 ntfs-3g 进程
-      await Process.run('pkill', ['-9', '-f', 'ntfs-3g.*$devId']);
-
-      loggerInfo('检测到未挂载的 NTFS 分区 $devNode，正在恢复系统原生只读挂载...');
-      final mountRes = await Process.run('diskutil', ['mount', devNode]);
-      if (mountRes.exitCode == 0) {
-        loggerInfo('🎉 分区 $devNode 已成功恢复系统原生只读挂载');
-        final infoRes =
-            await Process.run('diskutil', ['info', '-plist', devNode]);
-        if (infoRes.exitCode == 0) {
-          final doc = XmlDocument.parse(infoRes.stdout.toString());
-          final dict = doc.findAllElements('dict').firstOrNull;
-          if (dict != null) {
-            final parsed = _parsePlistDict(dict);
-            final pt = (parsed['MountPoint'] ?? '').toString().trim();
-            final vn = (parsed['VolumeName'] ?? '').toString().trim();
-            if (pt.isNotEmpty) resMap['mountPoint'] = pt;
-            if (vn.isNotEmpty) resMap['volumeName'] = vn;
-          }
-        }
-      } else {
-        loggerWarn('恢复原生只读挂载未直接成功: ${mountRes.stderr}');
-      }
-    } catch (e) {
-      loggerWarn('恢复原生挂载异常: $e');
-    }
-    return resMap;
   }
 
   /// 注释：计算磁盘的总容量、已用容量及可用容量
@@ -751,8 +699,8 @@ visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc
         await Process.run('rmdir', [mountPoint]);
       }
 
-      // 3. 恢复为 macOS 原生只读挂载状态 (与 Mac 开机原生只读状态一致，防止磁盘在系统/访达中消失)
-      if (disk.isNTFS) {
+      // 3. 处理恢复原生状态或完成卸载
+      if (disk.isNTFS && disk.isWritable) {
         loggerInfo('正在将磁盘恢复为系统原生只读挂载: $devNode');
         final remountRes = await Process.run('diskutil', ['mount', devNode]);
         if (remountRes.exitCode == 0) {
@@ -762,9 +710,13 @@ visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc
         } else {
           loggerWarn('恢复原生挂载未直接生效: ${remountRes.stderr} ${remountRes.stdout}');
         }
+      } else {
+        loggerInfo('🎉 磁盘 ${disk.displayName} 已成功卸载');
+        LyUtils.showToast('已成功卸载磁盘【${disk.displayName}】');
+        return true;
       }
 
-      // 4. 若普通卸载仍未干净（存在物理占用等情况），尝试提权清理并恢复原生只读
+      // 4. 若读写卸载恢复未直接生效，尝试提权清理并恢复原生只读
       loggerWarn('尝试提权清理与恢复原生只读挂载...');
       final cleanupScript = '''
 sync
@@ -774,12 +726,12 @@ if [ -n "$mountPoint" ]; then
 fi
 diskutil unmount force "$devNode" 2>/dev/null || true
 pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
-diskutil mount "$devNode" 2>/dev/null || true
+${disk.isWritable ? 'diskutil mount "$devNode" 2>/dev/null || true' : ''}
 ''';
       final privRes = await LyUtils.runPrivilegedScript(cleanupScript);
       if (privRes.exitCode == 0) {
-        loggerInfo('磁盘卸载与原生只读恢复处理完毕: ${disk.displayName}');
-        LyUtils.showToast('已安全卸载读写挂载并恢复只读');
+        loggerInfo('磁盘卸载处理完毕: ${disk.displayName}');
+        LyUtils.showToast(disk.isWritable ? '已安全卸载读写挂载并恢复只读' : '已成功卸载磁盘');
         return true;
       } else {
         LyUtils.showToast('卸载失败: 磁盘可能正被其他程序占用', isError: true);

@@ -14,6 +14,8 @@ import 'disk_detail_dialog.dart';
 class DiskItemCard extends StatelessWidget {
   final DiskItemModel disk;
   final bool isMounting;
+  final bool isUnmounting;
+  final bool isEjecting;
   final VoidCallback onMountReadWrite;
   final VoidCallback onUnmount;
   final VoidCallback onEject;
@@ -22,7 +24,9 @@ class DiskItemCard extends StatelessWidget {
   const DiskItemCard({
     super.key,
     required this.disk,
-    required this.isMounting,
+    this.isMounting = false,
+    this.isUnmounting = false,
+    this.isEjecting = false,
     required this.onMountReadWrite,
     required this.onUnmount,
     required this.onEject,
@@ -245,9 +249,11 @@ class DiskItemCard extends StatelessWidget {
   }
 
   /// 注释：绘制操作按钮区域
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 19:15
   /// 作者：郭翰林
   Widget renderActionButtons(BuildContext context, bool isDark) {
+    final isBusy = isMounting || isUnmounting || isEjecting;
+
     return Row(
       children: [
         if (disk.isNTFS && !disk.isWritable)
@@ -256,7 +262,7 @@ class DiskItemCard extends StatelessWidget {
             icon: Icons.flash_on_rounded,
             isLoading: isMounting,
             type: LyButtonType.primary,
-            onPressed: onMountReadWrite,
+            onPressed: isBusy ? null : onMountReadWrite,
           ),
         if (disk.isMounted) ...[
           const SizedBox(width: 8),
@@ -264,14 +270,15 @@ class DiskItemCard extends StatelessWidget {
             text: '访达打开',
             icon: Icons.folder_open_rounded,
             type: LyButtonType.secondary,
-            onPressed: onOpenFinder,
+            onPressed: isBusy ? null : onOpenFinder,
           ),
           const SizedBox(width: 8),
           LyButton(
             text: '卸载',
             icon: Icons.eject_outlined,
+            isLoading: isUnmounting,
             type: LyButtonType.secondary,
-            onPressed: onUnmount,
+            onPressed: isBusy ? null : onUnmount,
           ),
         ],
         const Spacer(),
@@ -279,8 +286,9 @@ class DiskItemCard extends StatelessWidget {
           LyButton(
             text: '推出',
             icon: Icons.power_settings_new_rounded,
+            isLoading: isEjecting,
             type: LyButtonType.secondary,
-            onPressed: onEject,
+            onPressed: isBusy ? null : onEject,
           ),
       ],
     );

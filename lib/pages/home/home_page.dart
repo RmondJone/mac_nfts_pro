@@ -232,6 +232,10 @@ class _HomePageState extends State<HomePage> {
             disk: disk,
             isMounting:
                 pageController.mountingDiskNode.value == disk.deviceNode,
+            isUnmounting:
+                pageController.unmountingDiskNode.value == disk.deviceNode,
+            isEjecting:
+                pageController.ejectingDiskNode.value == disk.deviceNode,
             onMountReadWrite: () => pageController.handleMountReadWrite(disk),
             onUnmount: () => pageController.handleUnmount(disk),
             onEject: () => pageController.handleEject(disk),

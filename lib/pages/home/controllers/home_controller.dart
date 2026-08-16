@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+
 import '../../../events/disk_events.dart';
 import '../../../utils/disk_engine_utils.dart';
 import '../../../utils/env_engine_utils.dart';
@@ -11,13 +14,19 @@ import '../models/disk_item_model.dart';
 import '../models/env_status_model.dart';
 
 /// 注释：首页磁盘管理控制器
-/// 时间：2026/08/16 12:20
+/// 时间：2026/08/16 19:15
 /// 作者：郭翰林
 class HomeController extends GetxController {
+  // 原生 MethodChannel 通道
+  static const MethodChannel _diskChannel =
+      MethodChannel('com.macntfs.pro/disk_events');
+
   // 磁盘列表与加载状态
   final RxList<DiskItemModel> diskList = <DiskItemModel>[].obs;
   final RxBool isLoadingDisks = false.obs;
   final RxString mountingDiskNode = ''.obs;
+  final RxString unmountingDiskNode = ''.obs;
+  final RxString ejectingDiskNode = ''.obs;
 
   // 驱动与环境状态
   final Rx<EnvStatusModel?> envStatus = Rx<EnvStatusModel?>(null);
@@ -30,14 +39,19 @@ class HomeController extends GetxController {
   final RxList<LogMessageEvent> logList = <LogMessageEvent>[].obs;
   final RxBool showLogConsole = false.obs;
 
-  // 定时与事件订阅
+  // 定时、文件监听与事件订阅
   Timer? _pollingTimer;
+  Timer? _debounceRefreshTimer;
+  Timer? _secondaryRefreshTimer;
   StreamSubscription<LogMessageEvent>? _logSubscription;
+  StreamSubscription<FileSystemEvent>? _volumeWatcherSubscription;
 
   @override
   void onInit() {
     super.onInit();
     _initSubscriptions();
+    _initNativeDiskEventListener();
+    _initVolumeDirectoryWatcher();
     refreshAll();
     _startPolling();
   }
@@ -45,7 +59,10 @@ class HomeController extends GetxController {
   @override
   void onClose() {
     _pollingTimer?.cancel();
+    _debounceRefreshTimer?.cancel();
+    _secondaryRefreshTimer?.cancel();
     _logSubscription?.cancel();
+    _volumeWatcherSubscription?.cancel();
     super.onClose();
   }
 
@@ -61,12 +78,78 @@ class HomeController extends GetxController {
     });
   }
 
-  /// 注释：开启磁盘状态周期轮询
-  /// 时间：2026/08/16 12:20
+  /// 注释：初始化系统原生磁盘事件监听通道 (捕获 U 盘插拔、桌面右键推出等)
+  /// 时间：2026/08/16 19:15
+  /// 作者：郭翰林
+  void _initNativeDiskEventListener() {
+    try {
+      _diskChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onDiskChanged') {
+          final event = (call.arguments is Map)
+              ? call.arguments['event']
+              : 'diskChanged';
+          loggerInfo('⚡️ 捕获系统原生磁盘硬件/挂载事件: $event，正在即时刷新列表...');
+          _triggerDebouncedRefresh();
+        }
+      });
+    } catch (e) {
+      loggerWarn('初始化原生磁盘监听失败: $e');
+    }
+  }
+
+  /// 注释：监听 /Volumes 目录文件系统变动作为即时双重保险
+  /// 时间：2026/08/16 19:15
+  /// 作者：郭翰林
+  void _initVolumeDirectoryWatcher() {
+    try {
+      final volumesDir = Directory('/Volumes');
+      if (volumesDir.existsSync()) {
+        _volumeWatcherSubscription = volumesDir.watch().listen((event) {
+          loggerInfo('⚡️ /Volumes 目录发生变动 (${event.path})，触发即时刷新...');
+          _triggerDebouncedRefresh();
+        });
+      }
+    } catch (e) {
+      loggerWarn('监听 /Volumes 目录变动异常: $e');
+    }
+  }
+
+  /// 注释：触发智能防抖刷新 (合并毫秒级高频事件并在稳定后二次校验)
+  /// 时间：2026/08/16 19:15
+  /// 作者：郭翰林
+  void _triggerDebouncedRefresh() {
+    _debounceRefreshTimer?.cancel();
+    _debounceRefreshTimer = Timer(const Duration(milliseconds: 250), () async {
+      if (mountingDiskNode.isEmpty &&
+          unmountingDiskNode.isEmpty &&
+          ejectingDiskNode.isEmpty &&
+          !isInstallingDriver.value) {
+        await refreshDisks(silent: true);
+
+        // 针对插入 U 盘时可能存在的多分区延迟识别，1.2 秒后做二次轻量校验
+        _secondaryRefreshTimer?.cancel();
+        _secondaryRefreshTimer =
+            Timer(const Duration(milliseconds: 1200), () {
+          if (mountingDiskNode.isEmpty &&
+              unmountingDiskNode.isEmpty &&
+              ejectingDiskNode.isEmpty &&
+              !isInstallingDriver.value) {
+            refreshDisks(silent: true);
+          }
+        });
+      }
+    });
+  }
+
+  /// 注释：开启磁盘状态周期轻量轮询
+  /// 时间：2026/08/16 19:15
   /// 作者：郭翰林
   void _startPolling() {
-    _pollingTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (mountingDiskNode.isEmpty && !isInstallingDriver.value) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mountingDiskNode.isEmpty &&
+          unmountingDiskNode.isEmpty &&
+          ejectingDiskNode.isEmpty &&
+          !isInstallingDriver.value) {
         refreshDisks(silent: true);
       }
     });
@@ -130,7 +213,7 @@ class HomeController extends GetxController {
   }
 
   /// 注释：一键以读写模式挂载指定磁盘
-  /// 时间：2026/08/16 12:20
+  /// 时间：2026/08/16 19:15
   /// 作者：郭翰林
   Future<void> handleMountReadWrite(DiskItemModel disk) async {
     final env = envStatus.value;
@@ -141,39 +224,43 @@ class HomeController extends GetxController {
 
     mountingDiskNode.value = disk.deviceNode;
     try {
-      final success = await DiskEngineUtils.mountReadWrite(disk, env);
-      if (success) {
-        await refreshDisks(silent: true);
-      }
+      await DiskEngineUtils.mountReadWrite(disk, env);
+      await refreshDisks(silent: true);
     } finally {
       mountingDiskNode.value = '';
     }
   }
 
-  /// 注释：卸载指定磁盘 (恢复原生只读挂载状态)
-  /// 时间：2026/08/16 18:35
+  /// 注释：卸载指定磁盘 (恢复原生只读挂载状态或完成卸载)
+  /// 时间：2026/08/16 19:15
   /// 作者：郭翰林
   Future<void> handleUnmount(DiskItemModel disk) async {
-    final success = await DiskEngineUtils.unmountDisk(disk);
-    if (success) {
-      await Future.delayed(const Duration(milliseconds: 300));
+    unmountingDiskNode.value = disk.deviceNode;
+    try {
+      await DiskEngineUtils.unmountDisk(disk);
       await refreshDisks(silent: true);
+    } finally {
+      unmountingDiskNode.value = '';
     }
   }
 
   /// 注释：安全推出指定物理磁盘 (硬件级安全断开)
-  /// 时间：2026/08/16 18:35
+  /// 时间：2026/08/16 19:15
   /// 作者：郭翰林
   Future<void> handleEject(DiskItemModel disk) async {
-    final success = await DiskEngineUtils.ejectDisk(disk);
-    if (success) {
-      diskList.removeWhere(
-        (d) =>
-            d.deviceIdentifier == disk.deviceIdentifier ||
-            (disk.parentDisk.isNotEmpty && d.parentDisk == disk.parentDisk),
-      );
-      await Future.delayed(const Duration(milliseconds: 300));
+    ejectingDiskNode.value = disk.deviceNode;
+    try {
+      final success = await DiskEngineUtils.ejectDisk(disk);
+      if (success) {
+        diskList.removeWhere(
+          (d) =>
+              d.deviceIdentifier == disk.deviceIdentifier ||
+              (disk.parentDisk.isNotEmpty && d.parentDisk == disk.parentDisk),
+        );
+      }
       await refreshDisks(silent: true);
+    } finally {
+      ejectingDiskNode.value = '';
     }
   }
 

@@ -10,6 +10,12 @@ class DiskRefreshedEvent {
   DiskRefreshedEvent(this.diskCount);
 }
 
+/// 系统原生磁盘硬件/挂载变动事件 (插拔/推出/挂载/卸载)
+class SystemDiskChangeEvent {
+  final String eventType;
+  SystemDiskChangeEvent([this.eventType = 'unknown']);
+}
+
 /// 磁盘挂载状态变更事件
 class DiskMountStatusChangedEvent {
   final String deviceNode;
