@@ -5,7 +5,7 @@ import 'defines/ly_colors.dart';
 import 'defines/ly_constants.dart';
 import 'pages/home/home_page.dart';
 
-/// 注释：MacNFTSPro 应用程序入口
+/// 注释：macOS NFTS 应用程序入口
 /// 时间：2026/08/16 12:20
 /// 作者：郭翰林
 void main() {

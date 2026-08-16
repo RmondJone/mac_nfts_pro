@@ -108,15 +108,23 @@ class _HomePageState extends State<HomePage> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: LyColors.primary,
               borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            child: const Icon(
-              Icons.disc_full_rounded,
-              color: Colors.white,
-              size: 20,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: const LoadAssetImage(
+                'app_icon',
+                width: 34,
+                height: 34,
+              ),
             ),
           ),
           const SizedBox(width: 10),

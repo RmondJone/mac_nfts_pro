@@ -321,7 +321,7 @@ class HomeController extends GetxController {
       final result = await LyUtils.runPrivilegedScript(script);
 
       if (result.exitCode == 0) {
-        loggerInfo('🎉 系统底层驱动与 MacNFTSPro 清理完毕，正在退出...');
+        loggerInfo('🎉 系统底层驱动与 macOS NFTS 清理完毕，正在退出...');
         LyUtils.showToast('卸载清理成功，应用将在 1 秒后自动退出');
         await Future.delayed(const Duration(milliseconds: 1000));
         exit(0);

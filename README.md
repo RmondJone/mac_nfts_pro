@@ -1,4 +1,4 @@
-# MacNFTSPro
+# macOS NFTS
 
 A new Flutter project.
 
