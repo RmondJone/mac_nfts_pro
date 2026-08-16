@@ -251,7 +251,7 @@ class DiskEngineUtils {
   }
 
   /// 注释：获取具体分区的详细信息
-  /// 时间：2026/08/16 17:55
+  /// 时间：2026/08/16 19:00
   /// 作者：郭翰林
   static Future<DiskItemModel?> _fetchDiskDetail(
     String devId,
@@ -314,6 +314,32 @@ class DiskEngineUtils {
         isWritable = true;
       }
 
+      // 判断是否是 NTFS
+      final isNTFS = ntfs3gMap.containsKey(devNode) ||
+          fsType.contains('ntfs') ||
+          fsName.toLowerCase().contains('ntfs') ||
+          userVisibleFs.toLowerCase().contains('ntfs') ||
+          (content.contains('Microsoft Basic Data') &&
+              !fsType.contains('fat') &&
+              !fsType.contains('msdos') &&
+              !fsType.contains('exfat') &&
+              !fsName.toLowerCase().contains('fat') &&
+              !fsName.toLowerCase().contains('exfat'));
+
+      // 2. 若 NTFS 磁盘处于未挂载状态（如在桌面被用户推出），刷新时自动恢复为系统原生只读挂载
+      if (isNTFS && !isMounted) {
+        final remountData = await _remountAsNativeReadOnly(devNode, devId);
+        if (remountData.containsKey('mountPoint')) {
+          mountPoint = remountData['mountPoint']!;
+          isMounted = true;
+          isWritable = false;
+          if (remountData.containsKey('volumeName') &&
+              remountData['volumeName']!.isNotEmpty) {
+            volumeName = remountData['volumeName']!;
+          }
+        }
+      }
+
       // 卷名智能提取：若 VolumeName 为空，尝试从挂载点或介质名提取
       if (volumeName.isEmpty) {
         if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
@@ -328,64 +354,15 @@ class DiskEngineUtils {
         }
       }
 
-      // 提取磁盘容量与可用空间
-      int parseSize(dynamic val) {
-        if (val is num) return val.toInt();
-        if (val is String) return int.tryParse(val) ?? 0;
-        return 0;
-      }
-
-      final rawTotal = parseSize(info['TotalSize']) > 0
-          ? parseSize(info['TotalSize'])
-          : (parseSize(info['APFSContainerSize']) > 0
-              ? parseSize(info['APFSContainerSize'])
-              : (parseSize(info['Size']) > 0
-                  ? parseSize(info['Size'])
-                  : (parseSize(info['VolumeSize']) > 0
-                      ? parseSize(info['VolumeSize'])
-                      : parseSize(info['IOKitSize']))));
-
-      final containerFree = parseSize(info['APFSContainerFree']);
-      final standardFree = parseSize(info['FreeSpace']);
-      int freeSpace = containerFree > 0 ? containerFree : standardFree;
-
-      final capInUse = parseSize(info['CapacityInUse']) > 0
-          ? parseSize(info['CapacityInUse'])
-          : parseSize(info['APFSVolumeCapacityInUse']);
-      int usedSpace = capInUse;
-
-      int totalSize = rawTotal;
-
-      // 如果已挂载，优先通过 df -k 表校准容量 (无论是 NTFS-3G 还是原生挂载)
-      if (isMounted && mountPoint.isNotEmpty && dfSpaceMap.containsKey(mountPoint)) {
-        final dfInfo = dfSpaceMap[mountPoint]!;
-        if (dfInfo.totalBytes > 0) {
-          totalSize = dfInfo.totalBytes;
-        }
-        usedSpace = dfInfo.usedBytes;
-        freeSpace = dfInfo.freeBytes;
-      } else {
-        if (usedSpace <= 0 && totalSize > 0 && freeSpace > 0 && totalSize >= freeSpace) {
-          usedSpace = totalSize - freeSpace;
-        }
-        if (freeSpace <= 0 && totalSize > 0 && usedSpace > 0 && totalSize >= usedSpace) {
-          freeSpace = totalSize - usedSpace;
-        }
-      }
+      // 3. 计算磁盘容量与可用空间
+      final spaceInfo = await _calculateDiskSpace(
+        info,
+        isMounted,
+        mountPoint,
+        dfSpaceMap,
+      );
 
       final uuid = (info['DiskUUID'] ?? info['VolumeUUID'] ?? '').toString();
-
-      // 判断是否是 NTFS
-      final isNTFS = ntfs3gMap.containsKey(devNode) ||
-          fsType.contains('ntfs') ||
-          fsName.toLowerCase().contains('ntfs') ||
-          userVisibleFs.toLowerCase().contains('ntfs') ||
-          (content.contains('Microsoft Basic Data') &&
-              !fsType.contains('fat') &&
-              !fsType.contains('msdos') &&
-              !fsType.contains('exfat') &&
-              !fsName.toLowerCase().contains('fat') &&
-              !fsName.toLowerCase().contains('exfat'));
 
       return DiskItemModel(
         deviceIdentifier: devId,
@@ -396,21 +373,157 @@ class DiskEngineUtils {
         filesystemType: fsType.isNotEmpty ? fsType : (isNTFS ? 'ntfs' : content),
         filesystemName: userVisibleFs.isNotEmpty
             ? userVisibleFs
-            : (fsName.isNotEmpty ? fsName : (isNTFS ? 'Windows NT File System (NTFS)' : '未知文件系统')),
+            : (fsName.isNotEmpty
+                ? fsName
+                : (isNTFS ? 'Windows NT File System (NTFS)' : '未知文件系统')),
         isNTFS: isNTFS,
         isMounted: isMounted,
         isWritable: isWritable,
         isInternal: isInternal,
         isRemovable: isRemovable,
-        totalSize: totalSize,
-        freeSpace: freeSpace,
-        usedSpace: usedSpace,
+        totalSize: spaceInfo.totalBytes,
+        freeSpace: spaceInfo.freeBytes,
+        usedSpace: spaceInfo.usedBytes,
         uuid: uuid,
       );
     } catch (e) {
       loggerWarn('解析分区 $devId 详情失败: $e');
       return null;
     }
+  }
+
+  /// 注释：尝试将未挂载的 NTFS 分区恢复为 macOS 系统原生初始化只读挂载
+  /// 时间：2026/08/16 19:00
+  /// 作者：郭翰林
+  static Future<Map<String, String>> _remountAsNativeReadOnly(
+    String devNode,
+    String devId,
+  ) async {
+    final Map<String, String> resMap = {};
+    try {
+      // 1. 清理可能残留的 ntfs-3g 进程
+      await Process.run('pkill', ['-9', '-f', 'ntfs-3g.*$devId']);
+
+      loggerInfo('检测到未挂载的 NTFS 分区 $devNode，正在恢复系统原生只读挂载...');
+      final mountRes = await Process.run('diskutil', ['mount', devNode]);
+      if (mountRes.exitCode == 0) {
+        loggerInfo('🎉 分区 $devNode 已成功恢复系统原生只读挂载');
+        final infoRes =
+            await Process.run('diskutil', ['info', '-plist', devNode]);
+        if (infoRes.exitCode == 0) {
+          final doc = XmlDocument.parse(infoRes.stdout.toString());
+          final dict = doc.findAllElements('dict').firstOrNull;
+          if (dict != null) {
+            final parsed = _parsePlistDict(dict);
+            final pt = (parsed['MountPoint'] ?? '').toString().trim();
+            final vn = (parsed['VolumeName'] ?? '').toString().trim();
+            if (pt.isNotEmpty) resMap['mountPoint'] = pt;
+            if (vn.isNotEmpty) resMap['volumeName'] = vn;
+          }
+        }
+      } else {
+        loggerWarn('恢复原生只读挂载未直接成功: ${mountRes.stderr}');
+      }
+    } catch (e) {
+      loggerWarn('恢复原生挂载异常: $e');
+    }
+    return resMap;
+  }
+
+  /// 注释：计算磁盘的总容量、已用容量及可用容量
+  /// 时间：2026/08/16 19:00
+  /// 作者：郭翰林
+  static Future<_DiskSpaceInfo> _calculateDiskSpace(
+    Map<String, dynamic> info,
+    bool isMounted,
+    String mountPoint,
+    Map<String, _DiskSpaceInfo> dfSpaceMap,
+  ) async {
+    int parseSize(dynamic val) {
+      if (val is num) return val.toInt();
+      if (val is String) return int.tryParse(val) ?? 0;
+      return 0;
+    }
+
+    final rawTotal = parseSize(info['TotalSize']) > 0
+        ? parseSize(info['TotalSize'])
+        : (parseSize(info['APFSContainerSize']) > 0
+            ? parseSize(info['APFSContainerSize'])
+            : (parseSize(info['Size']) > 0
+                ? parseSize(info['Size'])
+                : (parseSize(info['VolumeSize']) > 0
+                    ? parseSize(info['VolumeSize'])
+                    : parseSize(info['IOKitSize']))));
+
+    final containerFree = parseSize(info['APFSContainerFree']);
+    final standardFree = parseSize(info['FreeSpace']);
+    int freeSpace = containerFree > 0 ? containerFree : standardFree;
+
+    final capInUse = parseSize(info['CapacityInUse']) > 0
+        ? parseSize(info['CapacityInUse'])
+        : parseSize(info['APFSVolumeCapacityInUse']);
+    int usedSpace = capInUse;
+    int totalSize = rawTotal;
+
+    // 优先通过 df -k 表校准容量 (无论是 NTFS-3G 还是原生挂载)
+    if (isMounted && mountPoint.isNotEmpty) {
+      if (dfSpaceMap.containsKey(mountPoint)) {
+        final dfInfo = dfSpaceMap[mountPoint]!;
+        if (dfInfo.totalBytes > 0) totalSize = dfInfo.totalBytes;
+        usedSpace = dfInfo.usedBytes;
+        freeSpace = dfInfo.freeBytes;
+      } else {
+        // 若刚挂载未在初始 df 命中，补充获取一次
+        final liveDf = await _getDfSpaceForMountPoint(mountPoint);
+        if (liveDf != null) {
+          if (liveDf.totalBytes > 0) totalSize = liveDf.totalBytes;
+          usedSpace = liveDf.usedBytes;
+          freeSpace = liveDf.freeBytes;
+        }
+      }
+    } else {
+      if (usedSpace <= 0 && totalSize > 0 && freeSpace > 0 && totalSize >= freeSpace) {
+        usedSpace = totalSize - freeSpace;
+      }
+      if (freeSpace <= 0 && totalSize > 0 && usedSpace > 0 && totalSize >= usedSpace) {
+        freeSpace = totalSize - usedSpace;
+      }
+    }
+
+    return _DiskSpaceInfo(
+      totalBytes: totalSize,
+      usedBytes: usedSpace,
+      freeBytes: freeSpace,
+    );
+  }
+
+  /// 注释：针对单个挂载点获取实时 df 容量信息
+  /// 时间：2026/08/16 19:00
+  /// 作者：郭翰林
+  static Future<_DiskSpaceInfo?> _getDfSpaceForMountPoint(String mountPoint) async {
+    try {
+      final res = await Process.run('df', ['-k', mountPoint]);
+      if (res.exitCode == 0) {
+        final lines = res.stdout.toString().split('\n');
+        if (lines.length >= 2) {
+          final line = lines[1].trim();
+          final parts = line.split(RegExp(r'\s+'));
+          if (parts.length >= 4) {
+            final totalKb = int.tryParse(parts[1]) ?? 0;
+            final usedKb = int.tryParse(parts[2]) ?? 0;
+            final availKb = int.tryParse(parts[3]) ?? 0;
+            return _DiskSpaceInfo(
+              totalBytes: totalKb * 1024,
+              usedBytes: usedKb * 1024,
+              freeBytes: availKb * 1024,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      loggerWarn('获取挂载点实时容量异常: $e');
+    }
+    return null;
   }
 
   /// 注释：过滤系统内部无用卷
