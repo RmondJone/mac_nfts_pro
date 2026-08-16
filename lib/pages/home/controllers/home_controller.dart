@@ -191,8 +191,8 @@ class HomeController extends GetxController {
     }
   }
 
-  /// 注释：获取经过过滤后的磁盘列表 (展示所有 NTFS 格式磁盘)
-  /// 时间：2026/08/16 19:00
+  /// 注释：获取经过过滤后的磁盘列表 (展示有效 NTFS 磁盘，自动隐藏已推出的外置 U 盘)
+  /// 时间：2026/08/16 19:35
   /// 作者：郭翰林
   List<DiskItemModel> get filteredDisks {
     return diskList.where((d) {
@@ -200,7 +200,11 @@ class HomeController extends GetxController {
       if (!d.isNTFS) {
         return false;
       }
-      // 2. 搜索关键词过滤
+      // 2. 过滤已处于未挂载状态的外置/可移动 U 盘 (已被桌面右键推出或弹出)
+      if ((d.isRemovable || !d.isInternal) && !d.isMounted) {
+        return false;
+      }
+      // 3. 搜索关键词过滤
       if (searchKeyword.value.trim().isNotEmpty) {
         final kw = searchKeyword.value.toLowerCase().trim();
         final matchName = d.volumeName.toLowerCase().contains(kw);

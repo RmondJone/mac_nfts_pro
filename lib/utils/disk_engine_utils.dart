@@ -326,6 +326,21 @@ class DiskEngineUtils {
               !fsName.toLowerCase().contains('fat') &&
               !fsName.toLowerCase().contains('exfat'));
 
+      // 2. 若【内置物理 NTFS 磁盘】处于未挂载状态（如在桌面被用户推出/卸载），自动恢复为系统原生只读挂载
+      if (isNTFS && !isMounted && isInternal && !isRemovable) {
+        final remountData =
+            await _remountInternalDiskAsNativeReadOnly(devNode, devId);
+        if (remountData.containsKey('mountPoint')) {
+          mountPoint = remountData['mountPoint']!;
+          isMounted = true;
+          isWritable = false;
+          if (remountData.containsKey('volumeName') &&
+              remountData['volumeName']!.isNotEmpty) {
+            volumeName = remountData['volumeName']!;
+          }
+        }
+      }
+
       // 卷名智能提取：若 VolumeName 为空，尝试从挂载点或介质名提取
       if (volumeName.isEmpty) {
         if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
@@ -340,7 +355,7 @@ class DiskEngineUtils {
         }
       }
 
-      // 2. 计算磁盘容量与可用空间
+      // 3. 计算磁盘容量与可用空间
       final spaceInfo = await _calculateDiskSpace(
         info,
         isMounted,
@@ -376,6 +391,44 @@ class DiskEngineUtils {
       loggerWarn('解析分区 $devId 详情失败: $e');
       return null;
     }
+  }
+
+  /// 注释：将未挂载的内置 NTFS 物理分区恢复为 macOS 开机初始原生只读挂载
+  /// 时间：2026/08/16 19:30
+  /// 作者：郭翰林
+  static Future<Map<String, String>> _remountInternalDiskAsNativeReadOnly(
+    String devNode,
+    String devId,
+  ) async {
+    final Map<String, String> resMap = {};
+    try {
+      // 1. 清理可能残留的 ntfs-3g 进程
+      await Process.run('pkill', ['-9', '-f', 'ntfs-3g.*$devId']);
+
+      loggerInfo('检测到内置物理 NTFS 分区 $devNode 处于未挂载状态，正在自动恢复 macOS 开机原生只读挂载...');
+      final mountRes = await Process.run('diskutil', ['mount', devNode]);
+      if (mountRes.exitCode == 0) {
+        loggerInfo('🎉 内置分区 $devNode 已成功恢复系统原生只读挂载');
+        final infoRes =
+            await Process.run('diskutil', ['info', '-plist', devNode]);
+        if (infoRes.exitCode == 0) {
+          final doc = XmlDocument.parse(infoRes.stdout.toString());
+          final dict = doc.findAllElements('dict').firstOrNull;
+          if (dict != null) {
+            final parsed = _parsePlistDict(dict);
+            final pt = (parsed['MountPoint'] ?? '').toString().trim();
+            final vn = (parsed['VolumeName'] ?? '').toString().trim();
+            if (pt.isNotEmpty) resMap['mountPoint'] = pt;
+            if (vn.isNotEmpty) resMap['volumeName'] = vn;
+          }
+        }
+      } else {
+        loggerWarn('恢复内置分区原生只读挂载未直接成功: ${mountRes.stderr}');
+      }
+    } catch (e) {
+      loggerWarn('恢复内置分区原生挂载异常: $e');
+    }
+    return resMap;
   }
 
   /// 注释：计算磁盘的总容量、已用容量及可用容量
@@ -699,8 +752,8 @@ visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc
         await Process.run('rmdir', [mountPoint]);
       }
 
-      // 3. 处理恢复原生状态或完成卸载
-      if (disk.isNTFS && disk.isWritable) {
+      // 3. 处理恢复原生状态或完成卸载 (读写模式卸载或内置磁盘卸载均恢复系统原生只读挂载)
+      if (disk.isNTFS && (disk.isWritable || disk.isInternal)) {
         loggerInfo('正在将磁盘恢复为系统原生只读挂载: $devNode');
         final remountRes = await Process.run('diskutil', ['mount', devNode]);
         if (remountRes.exitCode == 0) {
