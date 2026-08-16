@@ -6,7 +6,7 @@
 
 - **应用平台**：macOS Desktop (Intel x86_64 & Apple Silicon arm64)
 - **技术栈**：Flutter (macOS) + GetX + ScreenUtil + EventBus + Xml
-- **作者**：郭翰林
+- **作者**：RmondJone
 - **当前版本**：v1.0.0
 
 ---
