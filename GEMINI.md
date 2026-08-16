@@ -77,8 +77,7 @@ mac_ntfs_pro/
 │       ├── bin/ntfs-3g              # Universal 二进制 (arm64 + x86_64)
 │       └── lib/                     # Universal 动态链接库 (libntfs-3g, libintl)
 ├── scripts/
-│   ├── create_pkg.sh                # 【核心】macOS 标准 PKG 安装包打包脚本 (含 postinstall)
-│   └── create_dmg.sh                # macOS DMG 安装镜像打包脚本
+│   └── create_pkg.sh                # 【核心】macOS 标准 PKG 安装包打包脚本 (含 postinstall)
 ├── macos/                           # macOS 原生工程目录
 │   └── Runner/                      # macOS App 启动入口与权限配置 (Entitlements)
 └── lib/
@@ -146,7 +145,7 @@ flutter pub get
 flutter run -d macos
 ```
 
-### 2. 编译与打包一键安装包 (PKG / DMG)
+### 2. 编译与打包一键安装包 (PKG)
 ```bash
 # 1. 编译 macOS Release 版本
 flutter build macos --release
@@ -154,11 +153,6 @@ flutter build macos --release
 # 2. 生成标准 PKG 安装包 (内置驱动 + postinstall 钩子)
 chmod +x scripts/create_pkg.sh
 ./scripts/create_pkg.sh
-
-# 3. 生成 DMG 安装镜像
-chmod +x scripts/create_dmg.sh
-./scripts/create_dmg.sh
 ```
 执行完毕后，将在桌面输出：
-- `~/Desktop/MacNTFS_Pro_Installer.pkg`（推荐：双击一步安装 App 与全部驱动）
-- `~/Desktop/MacNTFS_Pro_Installer.dmg`（含 PKG 安装器与 App）
+- `~/Desktop/MacNTFS_Pro_Installer.pkg`（双击一步安装 App 与全部驱动，开箱即用）
