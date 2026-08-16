@@ -109,7 +109,7 @@ class HomeController extends GetxController {
   }
 
   /// 注释：获取经过过滤后的磁盘列表 (仅展示当前已挂载的 NTFS 格式磁盘)
-  /// 时间：2026/08/16 18:20
+  /// 时间：2026/08/16 18:38
   /// 作者：郭翰林
   List<DiskItemModel> get filteredDisks {
     return diskList.where((d) {
@@ -117,7 +117,7 @@ class HomeController extends GetxController {
       if (!d.isNTFS) {
         return false;
       }
-      // 2. 过滤未挂载的磁盘 (用户在桌面/访达/App推出或卸载后不展示)
+      // 2. 过滤未挂载的磁盘 (仅展示当前已挂载的分区)
       if (!d.isMounted) {
         return false;
       }
@@ -154,24 +154,19 @@ class HomeController extends GetxController {
     }
   }
 
-  /// 注释：卸载指定磁盘
-  /// 时间：2026/08/16 17:55
+  /// 注释：卸载指定磁盘 (恢复原生只读挂载状态)
+  /// 时间：2026/08/16 18:35
   /// 作者：郭翰林
   Future<void> handleUnmount(DiskItemModel disk) async {
     final success = await DiskEngineUtils.unmountDisk(disk);
     if (success) {
-      diskList.removeWhere(
-        (d) =>
-            d.deviceIdentifier == disk.deviceIdentifier ||
-            (disk.parentDisk.isNotEmpty && d.parentDisk == disk.parentDisk),
-      );
       await Future.delayed(const Duration(milliseconds: 300));
       await refreshDisks(silent: true);
     }
   }
 
-  /// 注释：安全推出指定磁盘
-  /// 时间：2026/08/16 17:55
+  /// 注释：安全推出指定物理磁盘 (硬件级安全断开)
+  /// 时间：2026/08/16 18:35
   /// 作者：郭翰林
   Future<void> handleEject(DiskItemModel disk) async {
     final success = await DiskEngineUtils.ejectDisk(disk);

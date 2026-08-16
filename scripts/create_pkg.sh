@@ -89,7 +89,54 @@ if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
     ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
 fi
 
-echo "=== MacNTFS Pro 驱动环境部署完成！ ==="
+# 4. 部署免密挂载 Helper 脚本与 sudoers 规则
+echo "正在配置免密驱动挂载 Helper..."
+cat << 'HELPER_EOF' > /usr/local/bin/macntfs-helper
+#!/bin/bash
+set -e
+ACTION="$1"
+DEVICE="$2"
+MOUNT_PATH="$3"
+VOL_NAME="$4"
+
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    [ ! -f "/usr/local/lib/libfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    [ ! -f "/usr/local/lib/libfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
+fi
+
+case "$ACTION" in
+    mount)
+        diskutil unmount "$DEVICE" 2>/dev/null || true
+        mkdir -p "$MOUNT_PATH"
+        /usr/local/bin/ntfs-3g "$DEVICE" "$MOUNT_PATH" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,hide_hid_files,hide_dot_files,volname="$VOL_NAME"
+        ;;
+    unmount)
+        diskutil unmount force "$MOUNT_PATH" 2>/dev/null || umount -f "$MOUNT_PATH" 2>/dev/null || true
+        diskutil unmount force "$DEVICE" 2>/dev/null || true
+        DEV_ID="$(basename "$DEVICE")"
+        pkill -9 -f "ntfs-3g.*$DEV_ID" 2>/dev/null || true
+        rmdir "$MOUNT_PATH" 2>/dev/null || true
+        diskutil mount "$DEVICE" 2>/dev/null || true
+        ;;
+    *)
+        echo "Usage: $0 {mount|unmount} ..."
+        exit 1
+        ;;
+esac
+HELPER_EOF
+
+chmod 755 /usr/local/bin/macntfs-helper
+chown root:wheel /usr/local/bin/macntfs-helper
+
+mkdir -p /private/etc/sudoers.d
+echo "ALL ALL=(ALL) NOPASSWD: /usr/local/bin/macntfs-helper, /usr/local/bin/ntfs-3g" > /private/etc/sudoers.d/mac_ntfs_pro
+chmod 440 /private/etc/sudoers.d/mac_ntfs_pro
+chown root:wheel /private/etc/sudoers.d/mac_ntfs_pro
+visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc/sudoers.d/mac_ntfs_pro
+
+echo "=== MacNTFS Pro 驱动与免密环境部署完成！ ==="
 exit 0
 EOF
 

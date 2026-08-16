@@ -441,8 +441,8 @@ class DiskEngineUtils {
     return false;
   }
 
-  /// 注释：以读写模式安全挂载 NTFS 磁盘 (带环境自愈与失败安全回退保护)
-  /// 时间：2026/08/16 16:45
+  /// 注释：以读写模式安全挂载 NTFS 磁盘 (优先免密挂载，首次授权后后续永久免输密码)
+  /// 时间：2026/08/16 18:45
   /// 作者：郭翰林
   static Future<bool> mountReadWrite(
     DiskItemModel disk,
@@ -470,9 +470,36 @@ class DiskEngineUtils {
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      // 3. 构造基于 FUSE-T + NTFS-3G 的高级安全挂载脚本
+      // 3. 优先尝试免密静默读写挂载 (若系统已配置 Helper 与 Sudoers 规则)
+      if (File('/usr/local/bin/macntfs-helper').existsSync()) {
+        try {
+          loggerInfo('检测到免密 Helper，尝试静默免密读写挂载: ${disk.deviceNode}');
+          final helperRes = await Process.run('sudo', [
+            '-n',
+            '/usr/local/bin/macntfs-helper',
+            'mount',
+            disk.deviceNode,
+            targetMountPath,
+            mountPointName,
+          ]);
+
+          if (helperRes.exitCode == 0) {
+            loggerInfo('🎉 磁盘 ${disk.displayName} 免密读写挂载成功！');
+            LyUtils.showToast('【${disk.displayName}】已成功以读写模式挂载！');
+            await Future.delayed(const Duration(milliseconds: 500));
+            await LyUtils.openInFinder(targetMountPath);
+            return true;
+          } else {
+            loggerWarn('免密 Helper 尝试未成功 (${helperRes.stderr.toString().trim()})，转为系统授权模式');
+          }
+        } catch (e) {
+          loggerWarn('免密 Helper 执行异常: $e');
+        }
+      }
+
+      // 4. 首次提权挂载脚本 (执行挂载并自动部署免密 Helper 与 Sudoers 规则，后续永久免密)
       final mountCommand = '''
-# 确保 FUSE-T 动态库软链接就绪
+# 1. 确保 FUSE-T 动态库软链接就绪
 if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
     [ ! -f "/usr/local/lib/libfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
     [ ! -f "/usr/local/lib/libfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
@@ -480,21 +507,65 @@ if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
     [ ! -f "/usr/local/lib/libosxfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
 fi
 
-# 兜底确保卸载原生占用
+# 2. 兜底确保卸载原生占用
 diskutil unmount "${disk.deviceNode}" 2>/dev/null || true
 
-# 创建挂载目标目录
+# 3. 创建挂载目标目录并执行 NTFS-3G 读写挂载
 mkdir -p "$targetMountPath"
-
-# 执行 NTFS-3G 读写挂载 (包含 hide_hid_files 隐藏 Windows 系统与隐藏文件夹如 found.xxx, hide_dot_files 兼容 Mac 点文件)
 ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,hide_hid_files,hide_dot_files,volname="$mountPointName"
+
+# 4. 自动部署免密 Helper 与 Sudoers 规则，保证后续挂载永久免输密码
+cat << 'HELPER_EOF' > /usr/local/bin/macntfs-helper
+#!/bin/bash
+set -e
+ACTION="\$1"
+DEVICE="\$2"
+MOUNT_PATH="\$3"
+VOL_NAME="\$4"
+
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    [ ! -f "/usr/local/lib/libfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    [ ! -f "/usr/local/lib/libfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
+fi
+
+case "\$ACTION" in
+    mount)
+        diskutil unmount "\$DEVICE" 2>/dev/null || true
+        mkdir -p "\$MOUNT_PATH"
+        /usr/local/bin/ntfs-3g "\$DEVICE" "\$MOUNT_PATH" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,hide_hid_files,hide_dot_files,volname="\$VOL_NAME"
+        ;;
+    unmount)
+        diskutil unmount force "\$MOUNT_PATH" 2>/dev/null || umount -f "\$MOUNT_PATH" 2>/dev/null || true
+        diskutil unmount force "\$DEVICE" 2>/dev/null || true
+        DEV_ID="\$(basename "\$DEVICE")"
+        pkill -9 -f "ntfs-3g.*\$DEV_ID" 2>/dev/null || true
+        rmdir "\$MOUNT_PATH" 2>/dev/null || true
+        diskutil mount "\$DEVICE" 2>/dev/null || true
+        ;;
+    *)
+        echo "Usage: \$0 {mount|unmount} ..."
+        exit 1
+        ;;
+esac
+HELPER_EOF
+
+chmod 755 /usr/local/bin/macntfs-helper
+chown root:wheel /usr/local/bin/macntfs-helper
+
+mkdir -p /private/etc/sudoers.d
+echo "ALL ALL=(ALL) NOPASSWD: /usr/local/bin/macntfs-helper, /usr/local/bin/ntfs-3g" > /private/etc/sudoers.d/mac_ntfs_pro
+chmod 440 /private/etc/sudoers.d/mac_ntfs_pro
+chown root:wheel /private/etc/sudoers.d/mac_ntfs_pro
+visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc/sudoers.d/mac_ntfs_pro
 ''';
 
-      loggerInfo('执行安全读写挂载脚本:\n$mountCommand');
+      loggerInfo('执行安全读写挂载与免密环境配置:\n$mountCommand');
       final scriptResult = await LyUtils.runPrivilegedScript(mountCommand);
 
       if (scriptResult.exitCode == 0) {
-        loggerInfo('🎉 磁盘 ${disk.displayName} 读写挂载成功！');
+        loggerInfo('🎉 磁盘 ${disk.displayName} 读写挂载成功，已完成免密配置！');
         LyUtils.showToast('【${disk.displayName}】已成功以读写模式挂载！');
         await Future.delayed(const Duration(milliseconds: 500));
         await LyUtils.openInFinder(targetMountPath);
@@ -540,8 +611,8 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
     }
   }
 
-  /// 注释：安全卸载磁盘 (优先原生免密卸载，彻底消除不必要的密码弹窗)
-  /// 时间：2026/08/16 18:10
+  /// 注释：安全卸载磁盘读写挂载并回退为系统原生只读挂载 (防止内置/外置磁盘卸载后彻底消失)
+  /// 时间：2026/08/16 18:35
   /// 作者：郭翰林
   static Future<bool> unmountDisk(DiskItemModel disk) async {
     try {
@@ -550,54 +621,38 @@ ${env.ntfs3gPath} ${disk.deviceNode} "$targetMountPath" -o local,allow_other,aut
 
       final mountPoint = disk.mountPoint;
       final devNode = disk.deviceNode;
-
-      bool unmounted = false;
+      final devId = disk.deviceIdentifier;
 
       // 1. 如果有挂载点，优先卸载挂载点 (支持 FUSE-T / NFS / 原生挂载，完全免密)
       if (mountPoint.isNotEmpty) {
         final res = await Process.run('diskutil', ['unmount', mountPoint]);
-        if (res.exitCode == 0) {
-          unmounted = true;
-          loggerInfo('成功免密卸载挂载点: $mountPoint');
-        } else {
-          final forceRes = await Process.run('diskutil', ['unmount', 'force', mountPoint]);
-          if (forceRes.exitCode == 0) {
-            unmounted = true;
-            loggerInfo('成功免密强制卸载挂载点: $mountPoint');
-          }
+        if (res.exitCode != 0) {
+          await Process.run('diskutil', ['unmount', 'force', mountPoint]);
         }
       }
 
-      // 2. 尝试卸载设备节点 (完全免密)
-      final devRes = await Process.run('diskutil', ['unmount', devNode]);
-      if (devRes.exitCode == 0) {
-        unmounted = true;
-        loggerInfo('成功免密卸载设备节点: $devNode');
+      // 2. 卸载设备节点并清理残留的 ntfs-3g 进程与空挂载目录
+      await Process.run('diskutil', ['unmount', devNode]);
+      await Process.run('pkill', ['-9', '-f', 'ntfs-3g.*$devId']);
+      if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
+        await Process.run('rmdir', [mountPoint]);
       }
 
-      // 3. 如果是外置/可移动设备（U盘、移动硬盘），卸载后联动彻底安全推出脱机
-      if (disk.isRemovable || !disk.isInternal) {
-        final targetEjectDev =
-            disk.parentDisk.isNotEmpty ? disk.parentDisk : disk.deviceNode;
-        loggerInfo('外置设备卸载联动执行安全推出: $targetEjectDev');
-        final ejectRes = await Process.run('diskutil', ['eject', targetEjectDev]);
-        if (ejectRes.exitCode == 0) {
-          loggerInfo('外置磁盘已彻底安全推出: ${disk.displayName}');
-          LyUtils.showToast('【${disk.displayName}】已安全卸载并推出');
+      // 3. 恢复为 macOS 原生只读挂载状态 (与 Mac 开机原生只读状态一致，防止磁盘在系统/访达中消失)
+      if (disk.isNTFS) {
+        loggerInfo('正在将磁盘恢复为系统原生只读挂载: $devNode');
+        final remountRes = await Process.run('diskutil', ['mount', devNode]);
+        if (remountRes.exitCode == 0) {
+          loggerInfo('🎉 磁盘 ${disk.displayName} 已成功恢复为原生只读挂载状态');
+          LyUtils.showToast('已卸载读写模式，恢复为原生只读挂载');
           return true;
+        } else {
+          loggerWarn('恢复原生挂载未直接生效: ${remountRes.stderr} ${remountRes.stdout}');
         }
       }
 
-      // 4. 如果免密卸载成功，直接返回
-      if (unmounted) {
-        loggerInfo('磁盘卸载处理完毕: ${disk.displayName}');
-        LyUtils.showToast('已安全卸载【${disk.displayName}】');
-        return true;
-      }
-
-      // 4. 若普通卸载仍未成功（极少见物理占用情况），尝试提权清理兜底
-      loggerWarn('普通免密卸载未能成功，尝试提权清理...');
-      final devId = disk.deviceIdentifier;
+      // 4. 若普通卸载仍未干净（存在物理占用等情况），尝试提权清理并恢复原生只读
+      loggerWarn('尝试提权清理与恢复原生只读挂载...');
       final cleanupScript = '''
 sync
 if [ -n "$mountPoint" ]; then
@@ -606,11 +661,12 @@ if [ -n "$mountPoint" ]; then
 fi
 diskutil unmount force "$devNode" 2>/dev/null || true
 pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
+diskutil mount "$devNode" 2>/dev/null || true
 ''';
       final privRes = await LyUtils.runPrivilegedScript(cleanupScript);
       if (privRes.exitCode == 0) {
-        loggerInfo('磁盘提权卸载处理完毕: ${disk.displayName}');
-        LyUtils.showToast('已安全卸载【${disk.displayName}】');
+        loggerInfo('磁盘卸载与原生只读恢复处理完毕: ${disk.displayName}');
+        LyUtils.showToast('已安全卸载读写挂载并恢复只读');
         return true;
       } else {
         LyUtils.showToast('卸载失败: 磁盘可能正被其他程序占用', isError: true);
@@ -624,13 +680,14 @@ pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
   }
 
   /// 注释：安全推出物理磁盘 (原生免密推出)
-  /// 时间：2026/08/16 18:10
+  /// 时间：2026/08/16 18:35
   /// 作者：郭翰林
   static Future<bool> ejectDisk(DiskItemModel disk) async {
     try {
       loggerInfo('正在安全推出磁盘: ${disk.displayName} (${disk.deviceNode})');
       await Process.run('sync', []);
 
+      final devId = disk.deviceIdentifier;
       final mountPoint = disk.mountPoint;
       final devNode = disk.deviceNode;
       final targetEjectDev =
@@ -638,9 +695,16 @@ pkill -9 -f "ntfs-3g.*$devId" 2>/dev/null || true
 
       // 1. 如果还在挂载，先执行免密卸载
       if (mountPoint.isNotEmpty) {
-        await Process.run('diskutil', ['unmount', mountPoint]);
+        final res = await Process.run('diskutil', ['unmount', mountPoint]);
+        if (res.exitCode != 0) {
+          await Process.run('diskutil', ['unmount', 'force', mountPoint]);
+        }
       }
       await Process.run('diskutil', ['unmount', devNode]);
+      await Process.run('pkill', ['-9', '-f', 'ntfs-3g.*$devId']);
+      if (mountPoint.isNotEmpty && mountPoint.startsWith('/Volumes/')) {
+        await Process.run('rmdir', [mountPoint]);
+      }
 
       // 2. 直接执行原生免密推出
       final res = await Process.run('diskutil', ['eject', targetEjectDev]);

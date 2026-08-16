@@ -151,8 +151,8 @@ class EnvEngineUtils {
     );
   }
 
-  /// 注释：获取离线驱动安装 Shell 脚本
-  /// 时间：2026/08/16 16:30
+  /// 注释：获取离线驱动安装 Shell 脚本 (含免密挂载 Helper 与 Sudoers 规则配置)
+  /// 时间：2026/08/16 18:45
   /// 作者：郭翰林
   static String? getOfflineInstallScript() {
     final embeddedDir = getEmbeddedDriverDir();
@@ -192,11 +192,57 @@ if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
     ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
     ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
 fi
+
+# 部署免密挂载 Helper 脚本
+cat << 'HELPER_EOF' > /usr/local/bin/macntfs-helper
+#!/bin/bash
+set -e
+ACTION="\$1"
+DEVICE="\$2"
+MOUNT_PATH="\$3"
+VOL_NAME="\$4"
+
+if [ -f "/usr/local/lib/libfuse-t.dylib" ]; then
+    [ ! -f "/usr/local/lib/libfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.2.dylib
+    [ ! -f "/usr/local/lib/libfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libfuse.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.2.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.2.dylib
+    [ ! -f "/usr/local/lib/libosxfuse.dylib" ] && ln -sf /usr/local/lib/libfuse-t.dylib /usr/local/lib/libosxfuse.dylib
+fi
+
+case "\$ACTION" in
+    mount)
+        diskutil unmount "\$DEVICE" 2>/dev/null || true
+        mkdir -p "\$MOUNT_PATH"
+        /usr/local/bin/ntfs-3g "\$DEVICE" "\$MOUNT_PATH" -o local,allow_other,auto_xattr,recover,remove_hiberfile,windows_names,hide_hid_files,hide_dot_files,volname="\$VOL_NAME"
+        ;;
+    unmount)
+        diskutil unmount force "\$MOUNT_PATH" 2>/dev/null || umount -f "\$MOUNT_PATH" 2>/dev/null || true
+        diskutil unmount force "\$DEVICE" 2>/dev/null || true
+        DEV_ID="\$(basename "\$DEVICE")"
+        pkill -9 -f "ntfs-3g.*\$DEV_ID" 2>/dev/null || true
+        rmdir "\$MOUNT_PATH" 2>/dev/null || true
+        diskutil mount "\$DEVICE" 2>/dev/null || true
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+HELPER_EOF
+
+chmod 755 /usr/local/bin/macntfs-helper
+chown root:wheel /usr/local/bin/macntfs-helper
+
+# 配置 sudoers 免密规则 (只需首次授权，后续读写挂载完全免密)
+mkdir -p /private/etc/sudoers.d
+echo "ALL ALL=(ALL) NOPASSWD: /usr/local/bin/macntfs-helper, /usr/local/bin/ntfs-3g" > /private/etc/sudoers.d/mac_ntfs_pro
+chmod 440 /private/etc/sudoers.d/mac_ntfs_pro
+chown root:wheel /private/etc/sudoers.d/mac_ntfs_pro
+visudo -cf /private/etc/sudoers.d/mac_ntfs_pro 2>/dev/null || rm -f /private/etc/sudoers.d/mac_ntfs_pro
 ''';
   }
 
   /// 注释：获取一键彻底卸载与系统清理 Shell 脚本
-  /// 时间：2026/08/16 17:35
+  /// 时间：2026/08/16 18:45
   /// 作者：郭翰林
   static String getUninstallScript() {
     return '''
@@ -208,8 +254,10 @@ rm -rf "/Library/Application Support/fuse-t" 2>/dev/null || true
 rm -rf "/Library/Frameworks/fuse_t.framework" 2>/dev/null || true
 rm -rf "/Library/Filesystems/fuse-t.fs" 2>/dev/null || true
 
-# 2. 清理 /usr/local 下的驱动与软链接
+# 2. 清理 /usr/local 下的驱动与软链接及免密 Helper
 rm -f /usr/local/bin/ntfs-3g
+rm -f /usr/local/bin/macntfs-helper
+rm -f /private/etc/sudoers.d/mac_ntfs_pro
 rm -f /usr/local/lib/libntfs-3g*
 rm -f /usr/local/lib/libfuse-t*
 rm -f /usr/local/lib/libfuse.2.dylib
